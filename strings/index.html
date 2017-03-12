@@ -1,0 +1,240 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Strings - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="../">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html" class="active"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./strings/index.html#strings" name="strings"><h1>Strings</h1></a>
+<a class="header" href="./strings/index.html#string-arguments" name="string-arguments"><h2>String Arguments</h2></a>
+<p>Lets imagine you have an awesome Rust function which lets you count the number
+of characters in any UTF-8 string, and you want to make it usable from your C
+code. How would you do this?</p>
+<p>First, lets define the Rust function:</p>
+<pre><code class="language-rust">fn count_chars(s: &amp;str) -&gt; usize {
+    s.chars().count()
+}
+</code></pre>
+<p>Next we want to write a wrapper around <code>count_chars()</code> which exposes it to be
+called from other languages, but we don't want to take ownership of the string
+passed in. Luckily there's a <code>&amp;str</code> equivalent for working with
+null-terminated strings called <a href="https://doc.rust-lang.org/std/ffi/struct.CStr.html">CStr</a>.</p>
+<pre><code class="language-rust">use std::ffi::CStr;
+use std::os::raw::c_int;
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn count_characters(s: *const c_char) -&gt; c_int {
+    let str_slice = CStr::from_ptr(s);
+    count_chars(str_slice.to_str().unwrap()) as c_int
+}
+</code></pre>
+<p>You can see that instead of exposing the <code>count_chars()</code> function directly,
+I created a thin wrapper around it which does all the relevant casting between
+a <code>CStr</code> and a <code>&amp;str</code>, and then from <code>usize</code> to <code>c_int</code>.</p>
+<p>Calling our <a href="./strings/chars.rs">shim</a> from C is then almost trivial
+(<a href="./strings/main_chars.c">main_chars.c</a>):</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+int count_characters(char *s);
+
+int main() {
+    char *s = &quot;hello world!&quot;;
+    int num_chars = count_characters(s);
+
+    printf(&quot;There are %d characters in \&quot;%s\&quot;\n&quot;, num_chars, s);
+}
+</code></pre>
+<a class="header" href="./strings/index.html#returning-strings" name="returning-strings"><h2>Returning Strings</h2></a>
+<p>One issue I found early on is that returning strings isn't a trivial thing
+to do. You need to make sure that strings are correctly deallocated after
+you're done with them. Lets consider a naive implementation:</p>
+<pre><code class="language-rust">use std::ffi::CString;
+use std::os::raw::c_char;
+
+
+#[no_mangle]
+pub extern &quot;C&quot; fn version() -&gt; *mut c_char {
+    CString::new(&quot;0.1.0&quot;).unwrap().into_raw()
+}
+</code></pre>
+<p>We don't want to end up leaking memory so the next question you need to ask
+yourself is, &quot;how do I deallocate this once I'm done?&quot;. For this, we consult
+the docs:</p>
+<blockquote>
+<p>fn into_raw(self) -&gt; *mut c_char</p>
+<p>Transfers ownership of the string to a C caller.</p>
+<p>The pointer must be returned to Rust and reconstituted using from_raw to be
+properly deallocated. Specifically, one should not use the standard C free
+function to deallocate this string.</p>
+<p>Failure to call from_raw will lead to a memory leak.</p>
+</blockquote>
+<p>Okay, that's easy enough. All we need to do is provide a generic string
+destructor for our crate which will let us clean up strings when we're done
+with them.</p>
+<pre><code class="language-rust">#[no_mangle]
+pub extern &quot;C&quot; fn string_destroy(s: *mut c_char) {
+    if !s.is_null() {
+        unsafe {
+            CString::from_raw(s);
+        }
+    }
+}
+</code></pre>
+<p>This definitely works, but what happens if the caller forgets to deallocate the
+string afterwards? Or an exception is thrown? The string will never get
+destroyed and we'll just leak memory. Likewise, the caller (in this case, C)
+can't deallocate the string itself with <code>free()</code> because that's likely to leak
+memory or invoke undefined behaviour.</p>
+<p>There's also a second approach which, while possibly more difficult for a Rust
+library designer, is considerably nicer to work with when you're calling it
+from other languages. Instead of the <code>version()</code> function returning a string
+which needs to be deallocated afterwards, the caller will pass our function a
+buffer which the callee writes into, returning the number of bytes written.</p>
+<pre><code class="language-rust">#[no_mangle]
+pub unsafe extern &quot;C&quot; fn version_with_buffer(buf: *mut u8, len: c_int) -&gt; c_int {
+    if buf.is_null() {
+        return -1;
+    }
+
+    let mut buffer = slice::from_raw_parts_mut(buf, len as usize);
+    let version_number = CString::new(&quot;0.1.0&quot;).unwrap();
+    buffer.write(version_number.as_bytes_with_nul())
+        .map(|n| n as c_int)
+        .unwrap_or(-1)
+}
+</code></pre>
+<p>Now anyone wanting to get the version number for my Rust library just needs to
+allocate their own buffer, pass it in, then read the (UTF-8) bytes afterwards.</p>
+<p>Here's roughly how you'd call the Rust functions from C
+(<a href="./strings/main_versions.c">main_versions.c</a>):</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+char* version();
+void string_destroy(char *s);
+int version_with_buffer(char *buf, int len);
+
+
+int main() {
+    char *version_1 = version();
+    printf(&quot;Version from method 1: %s\n&quot;, version_1);
+    string_destroy(version_1);
+
+    char buffer[10];
+    version_with_buffer(buffer, 10);
+    printf(&quot;Version from method 2: %s\n&quot;, buffer);
+}
+</code></pre>
+<p>This second version is a lot more robust in the face of errors because the
+buffer is usually just an array allocated on the stack. Then if ever there's an
+exception or a panic it'll automatically get deallocated when the function
+returns. It also avoids an extra heap allocation, if you're into those kinds of
+micro-optimisations.</p>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+                    <a href="./structs/index.html" class="mobile-nav-chapters previous">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+                    <a href="./pythonic/index.html" class="mobile-nav-chapters next">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+
+            </div>
+
+            
+                <a href="./structs/index.html" class="nav-chapters previous" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+            
+
+            
+                <a href="./pythonic/index.html" class="nav-chapters next" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

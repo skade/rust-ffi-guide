@@ -1,0 +1,1328 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Best Practices - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="print.html#the-rust-ffi-guide" name="the-rust-ffi-guide"><h1>The Rust FFI Guide</h1></a>
+<p>Welcome to the Rust FFI Guide, i.e. <strong>using unsafe for fun and profit</strong>.</p>
+<blockquote>
+<p><strong>Note:</strong> I'm going to assume you're already familiar with the <a href="https://www.rust-lang.org/">Rust</a>
+language and have a relatively recent version of the compiler installed. If
+you're a little rusty, you might want to skim through <a href="https://doc.rust-lang.org/stable/book/">The Book</a> to
+refresh your memory.</p>
+<p>You'll also need to know some basic C/C++ or Python, as I'll be largely using
+that in my examples.</p>
+</blockquote>
+<p>The main goal of this guide is to show how to interoperate between <code>Rust</code> and
+other languages with as few segfaults and uses of undefined behaviour as
+possible.</p>
+<p>Some things I'm hoping to cover:</p>
+<ul>
+<li><a href="./introduction/index.html#Hello-World">Compiling and linking from the command line</a></li>
+<li><a href="./arrays/index.html">Using arrays</a></li>
+<li><a href="./structs/index.html">Sharing basic structs between languages</a></li>
+<li>Proper error handling</li>
+<li>Calling Rust from other (i.e. not C) languages</li>
+<li><a href="./strings/index.html">How to use strings without leaking memory or segfaults</a>
+(it's harder than you'd think)</li>
+<li>Asynchronous operations, threading and callbacks</li>
+<li>Bindgen</li>
+<li><a href="./pythonic/index.html">Emulating methods and OO</a>, and</li>
+<li><a href="./best_practices.html">Other miscellaneous bits and pieces or best practices I've picked up along
+the way</a></li>
+</ul>
+<a class="header" href="print.html#some-useful-links" name="some-useful-links"><h2>Some Useful Links:</h2></a>
+<ul>
+<li><a href="https://michael-f-bryan.github.io/rust-ffi-guide/">This Guide</a></li>
+<li><a href="https://github.com/Michael-F-Bryan/rust-ffi-guide">The GitHub Repo</a></li>
+<li><a href="https://doc.rust-lang.org/book/ffi.html">FFI Page from <em>The Book</em></a></li>
+<li><a href="http://jakegoulding.com/rust-ffi-omnibus/">The Rust FFI Omnibus</a></li>
+<li><a href="https://medium.com/jim-fleming/complex-types-with-rust-s-ffi-315d14619479">Complex Types With Rust's FFI</a></li>
+<li><a href="https://spin.atomicobject.com/2013/02/15/ffi-foreign-function-interfaces/">FFI: Foreign Function Interfaces for Fun &amp; Industry</a></li>
+</ul>
+<a class="header" href="print.html#hello-world" name="hello-world"><h2>Hello World</h2></a>
+<p>What would any programming guide be without the obligatory hello world example?</p>
+<blockquote>
+<p><strong>Note:</strong> For most of these examples I'll be using <code>C</code> to interoperate with
+my <code>Rust</code> code. It's pretty much the <em>lingua franca</em> of the programming world,
+so most people should be able to understand it what's happening and follow
+along.</p>
+</blockquote>
+<p>To start off with, we'll try to call a <code>C</code> program from <code>Rust</code>. Here's the
+contents of my <a href="./introduction/hello.c">hello.c</a>:</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+void say_hello(char *name) {
+    printf(&quot;Hello %s!\n&quot;, name);
+}
+</code></pre>
+<p>And here's the <code>Rust</code> code which will be using it (<a href="./introduction/main.rs">main.rs</a>):</p>
+<pre><code class="language-rust">use std::ffi::CString;
+use std::os::raw::c_char;
+
+
+extern &quot;C&quot; {
+    fn say_hello(name: *const c_char);
+}
+
+fn main() {
+    let me = CString::new(&quot;World&quot;).unwrap();
+
+    unsafe {
+        say_hello(me.as_ptr());
+    }
+}
+</code></pre>
+<p>Our <code>say_hello()</code> function is expecting a pointer to a null-terminated string,
+and the easiest way to create one of those is with a <a href="https://doc.rust-lang.org/nightly/std/ffi/struct.CString.html">CString</a>. Notice
+that we told the compiler that we'll be using an external function called
+<code>say_hello()</code>. The &quot;C&quot; bit indicates that it should use the &quot;C&quot; calling
+convention, a calling convention specifies low level details like how
+parameters are passed to a function, which registers the callee must preserve
+for the caller, and other nitty gritty details you only really need to know if
+you're a compiler writer or assembly programmer.</p>
+<p>Almost all of what we're doing here sidesteps Rust's memory guarantees, so
+expect to see a lot more <code>unsafe</code> blocks. In this case, the C function could do
+whatever it wants with our string, so you need to wrap the function call in
+<code>unsafe</code>.</p>
+<p>Next you'll need to compile the C code into a library which can be called by
+Rust. In this example I'm going to compile it into a <code>shared library</code>.</p>
+<blockquote>
+<p><strong>Note:</strong> If you aren't familiar with the difference between a <code>static</code> and
+<code>dynamic</code> library, or how you use them you might want to read
+<a href="http://stackoverflow.com/questions/2649334/difference-between-static-and-shared-libraries">this Stack Overflow question</a>.</p>
+</blockquote>
+<pre><code class="language-bash">$ clang -shared -fPIC -o libhello.so hello.c
+</code></pre>
+<p>The <code>-shared</code> flag tells clang to compile as a dynamically linked library
+(typically &quot;*.so&quot; on Linux or &quot;*.dll&quot; on Windows). You'll also need the <code>-fPIC</code>
+flag to tell the compiler to generate Position Independent Code so that the
+generated machine code is not dependent on being located at a specific address
+in order to work. This basically means when invoking a function it'll use
+relative jumps rather than absolute.</p>
+<p>Next up is compiling <code>main.rs</code>:</p>
+<pre><code class="language-bash">$ rustc -l hello -L . main.rs
+</code></pre>
+<p>The <code>-l</code> flag tells <code>rustc</code> which library it'll need to link against so it can
+resolve symbols, and the <code>-L</code> flag adds the current directory to the list of
+places to search when finding the <code>hello</code> library.</p>
+<p>Finally we can actually run the program</p>
+<pre><code class="language-bash">$ LD_LIBRARY_PATH=. ./main
+</code></pre>
+<blockquote>
+<p><strong>Note:</strong> When you try to run a program, what actually happens is the
+<a href="https://en.wikipedia.org/wiki/Loader_(computing)">loader</a> loads the binary into memory, then tries to find any symbols
+belonging to shared libraries. Because <code>libhello.so</code> isn't in any of the
+standard directories the loader usually searches, we have to explicitly tell
+the loader where it is by overriding <code>LD_LIBRARY_PATH</code>.</p>
+</blockquote>
+<p>If we didn't override the <code>LD_LIBRARY_PATH</code> then you'd see an error something
+like this:</p>
+<pre><code class="language-bash">$ ./main
+./main: error while loading shared libraries: libhello.so: cannot open shared object file: No such file or directory
+</code></pre>
+<p>There are much more elegant solutions than this, but it'll suffice for now.</p>
+<a class="header" href="print.html#arrays" name="arrays"><h1>Arrays</h1></a>
+<p>Now that you've got the basics, lets try to do something a little more
+interesting. We'll pass around some arrays.</p>
+<p>For a change, we'll be using Rust as a library (i.e. the &quot;guest&quot; language) and
+C as the &quot;host&quot; language. If you're trying to augment a legacy code base with
+safer code which is less prone to memory issues and security vulnerabilities,
+this is something you might end up doing often.</p>
+<a class="header" href="print.html#our-rust-library" name="our-rust-library"><h2>Our Rust Library</h2></a>
+<p>This program is going to be fairly stock standard. We'll write a Rust function
+which receives an array of integers and gives you back their average as a <code>f64</code>
+and put it in <a href="./arrays/averages.rs">averages.rs</a>.</p>
+<pre><code class="language-rust">// averages.rs
+
+use std::slice;
+
+#[no_mangle]
+pub extern &quot;C&quot; fn average(array: *const i64, length: i32) -&gt; f64 {
+    let numbers = unsafe { slice::from_raw_parts(array, length as usize) };
+
+    let sum = numbers.iter()
+        .fold(0.0, |acc, &amp;elem| acc + elem as f64);
+
+    sum / numbers.len() as f64
+}
+</code></pre>
+<p>The code itself is quite tame, and should be familiar to most rustaceans, but
+that <code>unsafe</code> line should have caught your attention. We're using
+<a href="https://doc.rust-lang.org/nightly/std/slice/fn.from_raw_parts.html">slice::from_raw_parts()</a> to tell the compiler &quot;here's a pointer
+to some an <code>i64</code> and a number of elements, can you just pretend it's an array
+for me?&quot;.</p>
+<p>We needed to add the <code>extern &quot;C&quot;</code> bit to the function signature to indicate
+that the function will be exported and should use the &quot;C&quot; calling convention.
+The <code>#[no_mangle]</code> attribute tells the compiler to leave the function symbol as
+it is instead of mangling it (check out <a href="https://en.wikipedia.org/wiki/Name_mangling">name mangling</a> for more
+details).</p>
+<blockquote>
+<p><strong>Note:</strong> Notice that I used <code>slice::from_raw_parts()</code> here to get a slice
+instead of getting a <code>Vec</code> with <code>Vec::from_raw_parts()</code>. I'll leave it as an
+exercise for the reader to figure out why (hint: who owns that chunk of
+memory?)</p>
+</blockquote>
+<p>Obviously must be unsafe (hence the <code>unsafe</code> block), but what exactly could go
+wrong here? I'll try to list just a few ways you could end up having a bad
+time.</p>
+<ul>
+<li>The caller passes in a null pointer instead of a pointer to some valid array.<br />
+this leads to a segfault the moment you try to iterate over it because you
+don't own the memory at address 0.</li>
+<li>The caller passes in a length which is longer than the actual array that was
+allocated. When you do your iteration you then start reading into array you
+don't own and either the OS will make you segfault (if you're lucky), or you
+read bytes from the next thing in memory.</li>
+<li>The caller gives you a pointer to an array of floats (or bools, or structs,
+or whatever). <code>slice::from_raw_parts()</code> doesn't do any type checking, so it'll
+happily let you read in garbage (assuming you don't segfault).</li>
+</ul>
+<p>Now that we have a better idea of what <em>could</em> go wrong, lets compile this baby.
+Just for fun, lets make this example statically compiled.</p>
+<pre><code class="language-bash">$ rustc --crate-type staticlib -o libaverages.a averages.rs
+note: link against the following native artifacts when linking against this static library
+
+note: the order and any duplication can be significant on some platforms, and so may need to be preserved
+
+note: library: dl
+note: library: rt
+note: library: pthread
+note: library: gcc_s
+note: library: c
+note: library: m
+note: library: rt
+note: library: util
+</code></pre>
+<p>Woah, what happened there?! What are all these extra notes about?</p>
+<p>It turns out that because we're wanting to compile everything into one
+executable, dependencies and all, we'll also need to link in a bunch of other
+stuff. If you don't really understand what I'm talking about, its okay, you'll
+see what I mean a bit later.</p>
+<a class="header" href="print.html#the-c-program" name="the-c-program"><h2>The C Program</h2></a>
+<p>Using our Rust library is actually fairly easy to do in C. You just declare it
+like you would when calling any other C library, then pass in the appropriate
+parameters. Here is the contents of my <a href="./arrays/main.c">main.c</a>:</p>
+<pre><code class="language-c">// main.c
+
+#include &lt;stdio.h&gt;
+
+double average(long *array, int length);
+
+int main() {
+    long arr[20];
+
+    for (int i = 0; i &lt; 20; i++) {
+        arr[i] = i*i;
+    }
+
+    double avg = average(arr, 20);
+
+    printf(&quot;The average is %f\n&quot;, avg);
+}
+</code></pre>
+<p>And now let's compile everything.</p>
+<pre><code class="language-bash">$ clang main.c libaverages.a
+libaverages.a(std-9a66b6a343d52844.0.o): In function `std::sys::imp::mutex::{{impl}}::init':
+/checkout/src/libstd/sys/unix/mutex.rs:56: undefined reference to `pthread_mutexattr_init'
+/checkout/src/libstd/sys/unix/mutex.rs:58: undefined reference to `pthread_mutexattr_settype'
+/checkout/src/libstd/sys/unix/mutex.rs:62: undefined reference to `pthread_mutexattr_destroy'
+/checkout/src/libstd/sys/unix/mutex.rs:56: undefined reference to `pthread_mutexattr_init'
+...
+...
+/checkout/src/libstd/sys/unix/thread.rs:240: undefined reference to `pthread_attr_getstack'
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+</code></pre>
+<p>Oops! When clang tried to compile our <code>libaverages.a</code> library and <code>main.c</code> into
+one executable it wasn't able to find a bunch of symbols.</p>
+<p>Remember those notes from earlier? That's what <code>rustc</code> was trying to warn us
+about. When you compile everything statically you need to include <strong>all</strong> your
+dependencies. You didn't have this issue when dynamically linking because the
+loader finds everything for you.</p>
+<p>Okay, lets try again...</p>
+<pre><code class="language-bash">$ clang -l dl \
+    -l rt \
+    -l pthread \
+    -l gcc_s \
+    -l c \
+    -l m \
+    -l util \
+    -o main \
+    main.c \
+    libaverages.a
+$ ls 
+main  averages.rs  libaverages.a  main.c  
+$ ./main
+The average is 123.500000
+</code></pre>
+<p>Looks like it's finally working, but passing in all those <code>-l</code> arguments to
+keep the linker happy was hard work! You can see why people came up with tools
+like <code>make</code> to help them build everything.</p>
+<p>Luckily in Rust, we can do one better...</p>
+<a class="header" href="print.html#sharing-structs" name="sharing-structs"><h1>Sharing Structs</h1></a>
+<p>Believe it or not but it's fairly easy to share structs between Rust and other
+languages. As long as you tell the Rust compiler to lay out structs &quot;how C does
+it&quot; (with <code>#[repr(C)]</code>) and have the right type declarations, everything <em>Just
+Works™</em>. It's all bytes at the end of the day, anyway.</p>
+<p>Remember how I mentioned earlier that there's an easier way to compile and link
+everything? Well there is, it's called <a href="https://docs.rs/gcc/0.3.43/gcc/index.html">gcc-rs</a>. All you need to do is
+point it at your C source code and it'll do all the hard parts like compiling
+to a static library and then providing the correct linker args to rustc.</p>
+<a class="header" href="print.html#getting-resource-usage" name="getting-resource-usage"><h2>Getting Resource Usage</h2></a>
+<p>For this example we'll be asking the kernel how many resources the current
+process is using, and to make this a lot easier to do in a platform dependent
+(-ish) manner, we'll write a small C shim that passes just the information we
+care about back to Rust.</p>
+<p>The function in particular I'd like to use is <a href="https://www.gnu.org/software/libc/manual/html_node/Resource-Usage.html">getrusage()</a>, which
+is part of the GNU <code>libc</code>.</p>
+<blockquote>
+<p><strong>Note:</strong> this example will be, quite obviously, Linux-specific. If you're on
+Mac or Windows you might want to look for some other function which returns
+a struct and play around with that. To be honest, I'm only using <code>getrusage()</code>
+because it was the first thing to pop up when I searched Google.</p>
+<p><a href="https://msdn.microsoft.com/en-us/library/windows/desktop/ms683210(v=vs.85).aspx">This function</a> looks like the Windows equivalent, and the output struct
+is even simpler than the Linux one because there's no nesting. Just <code>#include</code>
+the <code>Psapi.h</code> header file and you should be able to follow along fairly
+easily.</p>
+</blockquote>
+<p>The first thing you'll want to do when calling one of the standard C functions
+is to consult the man page:</p>
+<pre><code class="language-text">$ man getrusage
+NAME
+       getrusage - get resource usage
+
+SYNOPSIS
+       #include &lt;sys/time.h&gt;
+       #include &lt;sys/resource.h&gt;
+
+       int getrusage(int who, struct rusage *usage);
+
+DESCRIPTION
+       getrusage() returns resource usage measures for who, which can be one of 
+       the following:
+
+       RUSAGE_SELF
+              Return resource usage statistics for the calling process, which 
+              is the sum of resources used by all threads in the process.
+
+       RUSAGE_CHILDREN
+              Return  resource  usage statistics for all children of the calling 
+              process that have terminated and been waited for. These 
+              statistics will include the resources used by grandchildren, 
+              and further removed descendants, if all of the intervening 
+              descendants waited on their terminated children.  
+
+       The resource usages are returned in the structure pointed to by usage, 
+       which has the following form:
+
+           struct rusage {
+               struct timeval ru_utime; /* user CPU time used */
+               struct timeval ru_stime; /* system CPU time used */
+               long   ru_maxrss;        /* maximum resident set size */
+               long   ru_ixrss;         /* integral shared memory size */
+               long   ru_idrss;         /* integral unshared data size */
+               long   ru_isrss;         /* integral unshared stack size */
+               long   ru_minflt;        /* page reclaims (soft page faults) */
+               long   ru_majflt;        /* page faults (hard page faults) */
+               long   ru_nswap;         /* swaps */
+               long   ru_inblock;       /* block input operations */
+               long   ru_oublock;       /* block output operations */
+               long   ru_msgsnd;        /* IPC messages sent */
+               long   ru_msgrcv;        /* IPC messages received */
+               long   ru_nsignals;      /* signals received */
+               long   ru_nvcsw;         /* voluntary context switches */
+               long   ru_nivcsw;        /* involuntary context switches */
+           };
+
+</code></pre>
+<p>Obviously the <code>rusage</code> struct contains loads of juicy information about a
+process, but we only need a small subset of this so to make things easier we'll
+write a C library which calls <code>getrusage()</code> for us and only gives us the info we
+want. In this case, all I care about is the resident memory, unshared stack size
+and amount of time spent in user mode.</p>
+<p>Here's the C shim I came up with:</p>
+<pre><code class="language-c">#include &lt;sys/time.h&gt;
+#include &lt;sys/resource.h&gt;
+
+typedef struct stats {
+    struct timeval ru_utime;
+    long ru_maxrss;
+    long ru_isrss;
+} stats;
+
+int get_usage_stats(stats *output) {
+    struct rusage raw_usage;
+    int ret;
+    
+    ret = getrusage(RUSAGE_SELF, &amp;raw_usage);
+
+    output-&gt;ru_utime = raw_usage.ru_utime;
+    output-&gt;ru_maxrss = raw_usage.ru_maxrss;
+    output-&gt;ru_isrss = raw_usage.ru_ixrss;
+
+    return ret;
+}
+</code></pre>
+<a class="header" href="print.html#the-main-rust-program" name="the-main-rust-program"><h2>The Main Rust Program</h2></a>
+<p>Now we get to do the fun stuff, actually using this C shim of ours.</p>
+<p>First you'll want to create a new crate:</p>
+<pre><code class="language-bash">$ cargo new --bin get_usage
+</code></pre>
+<p>Make sure the C shim is in your <code>src/</code> directory. I put it at
+<a href="./structs/get_usage/src/usage.c">./get_usage/src/usage.c</a>.</p>
+<p>Next you'll want to declare the C shim and custom structs in
+<a href="./structs/get_usage/src/main.rs">main.rs</a>.</p>
+<pre><code class="language-rust">extern crate libc;
+use std::process;
+
+#[derive(Debug, Default)]
+#[repr(C)]
+struct Usage {
+    ru_utime: Timeval,
+    ru_maxrss: libc::c_long,
+    ru_isrss: libc::c_long,
+}
+
+#[derive(Debug, Default)]
+#[repr(C)]
+struct Timeval {
+    tv_sec: libc::time_t,
+    tv_usec: libc::suseconds_t,
+}
+
+extern &quot;C&quot; {
+    fn get_usage_stats(stats: &amp;mut Usage) -&gt; libc::c_int;
+}
+
+fn main() {
+    let mut usage = Usage::default();
+
+    let status = unsafe { get_usage_stats(&amp;mut usage) };
+
+    if status != 0 {
+        println!(&quot;An error occurred! Error code: {}&quot;, status);
+        process::exit(1);
+    } else {
+        println!(&quot;Usage statistics for this process: {:?}&quot;, usage);
+    }
+}
+</code></pre>
+<p>You'll see that I'm importing the <a href="https://doc.rust-lang.org/libc/x86_64-unknown-linux-gnu/libc/">libc</a> crate to help make sure the
+basic integer types (e.g. <code>c_long</code> and <code>time_t</code>) match up. You'll want to use
+this crate a lot to avoid issues like a pointer being either 32 or 64-bits and
+other quirks.</p>
+<p>They also have a definition of <code>timeval</code> too, but I felt like declaring my own
+because it's just a struct with a pair of <code>i64</code>s (for my platform anyway). As
+long as the integer types and sizes match up C won't care, bytes are bytes.</p>
+<blockquote>
+<p><strong>Note:</strong> The big thing to take away here is that as long as your struct is
+the correct size, it doesn't matter how it's laid out internally. This means
+you can actually emulate the <code>rusage</code> struct like this and skip the C shim
+entirely!</p>
+<pre><code class="language-rust">#[repr(C)]
+struct rusage {
+  ru_utime: Timeval,
+  _padding_1: [u8; 8],
+  ru_maxrss: libc::c_long,
+  _padding_2: [u8; 8],
+  ru_isrsss: libc::c_long,
+  _padding_3: [u8; 40],
+}
+</code></pre>
+<p>I feel like you could use some macro magic to emulate C-style unions using
+getters/setters and a healthy dose of <code>transmute()</code>. But I'll leave that as
+an exercise for the reader.</p>
+</blockquote>
+<p>Now to roll this all together there's just one more step. A build script.</p>
+<p>This one's surprisingly easy (<a href="./structs/get_usage/build.rs">build.rs</a>):</p>
+<pre><code class="language-rust">extern crate gcc;
+
+fn main() {
+    gcc::compile_library(&quot;libusage.a&quot;, &amp;[&quot;src/usage.c&quot;]);
+}
+</code></pre>
+<p>Don't forget to add <code>gcc</code> and <code>libc</code> to your
+<a href="./structs/get_usage/Cargo.toml">Cargo.toml</a>.</p>
+<pre><code class="language-toml">[package]
+name = &quot;get_usage&quot;
+version = &quot;0.1.0&quot;
+authors = [&quot;Michael Bryan &lt;michaelfbryan@gmail.com&gt;&quot;]
+build = &quot;build.rs&quot;
+
+[dependencies]
+libc = &quot;*&quot;
+
+[build-dependencies]
+gcc = &quot;*&quot;
+</code></pre>
+<p>And now we can finally run this thing.</p>
+<pre><code class="language-bash">$ cargo run
+   Compiling libc v0.2.20
+   Compiling gcc v0.3.43
+   Compiling get_usage v0.1.0 (...)
+    Finished dev [unoptimized + debuginfo] target(s) in 3.51 secs
+     Running `target/debug/get_usage`
+Usage statistics for this process: Usage { ru_utime: Timeval { tv_sec: 0, tv_usec: 24000 }, ru_maxrss: 18732, ru_isrss: 0 }
+</code></pre>
+<p>Believe it or not, but the hardest part of all this wasn't the FFI, it was
+trawling through various man pages and the <code>libc</code> documentation to find out how
+the <code>rusage</code> and <code>timeval</code> structs are laid out.</p>
+<p>If you're wondering where <code>gcc-rs</code> put the C library or what symbols were
+defined:</p>
+<pre><code class="language-bash">$ find -name libusage.a
+./target/debug/build/get_usage-3714b2c0389134ed/out/libusage.a
+
+$ nm $(find -name 'libusage.a')
+usage.o:
+                 U getrusage
+0000000000000000 T get_usage_stats
+</code></pre>
+<a class="header" href="print.html#strings" name="strings"><h1>Strings</h1></a>
+<a class="header" href="print.html#string-arguments" name="string-arguments"><h2>String Arguments</h2></a>
+<p>Lets imagine you have an awesome Rust function which lets you count the number
+of characters in any UTF-8 string, and you want to make it usable from your C
+code. How would you do this?</p>
+<p>First, lets define the Rust function:</p>
+<pre><code class="language-rust">fn count_chars(s: &amp;str) -&gt; usize {
+    s.chars().count()
+}
+</code></pre>
+<p>Next we want to write a wrapper around <code>count_chars()</code> which exposes it to be
+called from other languages, but we don't want to take ownership of the string
+passed in. Luckily there's a <code>&amp;str</code> equivalent for working with
+null-terminated strings called <a href="https://doc.rust-lang.org/std/ffi/struct.CStr.html">CStr</a>.</p>
+<pre><code class="language-rust">use std::ffi::CStr;
+use std::os::raw::c_int;
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn count_characters(s: *const c_char) -&gt; c_int {
+    let str_slice = CStr::from_ptr(s);
+    count_chars(str_slice.to_str().unwrap()) as c_int
+}
+</code></pre>
+<p>You can see that instead of exposing the <code>count_chars()</code> function directly,
+I created a thin wrapper around it which does all the relevant casting between
+a <code>CStr</code> and a <code>&amp;str</code>, and then from <code>usize</code> to <code>c_int</code>.</p>
+<p>Calling our <a href="./strings/chars.rs">shim</a> from C is then almost trivial
+(<a href="./strings/main_chars.c">main_chars.c</a>):</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+int count_characters(char *s);
+
+int main() {
+    char *s = &quot;hello world!&quot;;
+    int num_chars = count_characters(s);
+
+    printf(&quot;There are %d characters in \&quot;%s\&quot;\n&quot;, num_chars, s);
+}
+</code></pre>
+<a class="header" href="print.html#returning-strings" name="returning-strings"><h2>Returning Strings</h2></a>
+<p>One issue I found early on is that returning strings isn't a trivial thing
+to do. You need to make sure that strings are correctly deallocated after
+you're done with them. Lets consider a naive implementation:</p>
+<pre><code class="language-rust">use std::ffi::CString;
+use std::os::raw::c_char;
+
+
+#[no_mangle]
+pub extern &quot;C&quot; fn version() -&gt; *mut c_char {
+    CString::new(&quot;0.1.0&quot;).unwrap().into_raw()
+}
+</code></pre>
+<p>We don't want to end up leaking memory so the next question you need to ask
+yourself is, &quot;how do I deallocate this once I'm done?&quot;. For this, we consult
+the docs:</p>
+<blockquote>
+<p>fn into_raw(self) -&gt; *mut c_char</p>
+<p>Transfers ownership of the string to a C caller.</p>
+<p>The pointer must be returned to Rust and reconstituted using from_raw to be
+properly deallocated. Specifically, one should not use the standard C free
+function to deallocate this string.</p>
+<p>Failure to call from_raw will lead to a memory leak.</p>
+</blockquote>
+<p>Okay, that's easy enough. All we need to do is provide a generic string
+destructor for our crate which will let us clean up strings when we're done
+with them.</p>
+<pre><code class="language-rust">#[no_mangle]
+pub extern &quot;C&quot; fn string_destroy(s: *mut c_char) {
+    if !s.is_null() {
+        unsafe {
+            CString::from_raw(s);
+        }
+    }
+}
+</code></pre>
+<p>This definitely works, but what happens if the caller forgets to deallocate the
+string afterwards? Or an exception is thrown? The string will never get
+destroyed and we'll just leak memory. Likewise, the caller (in this case, C)
+can't deallocate the string itself with <code>free()</code> because that's likely to leak
+memory or invoke undefined behaviour.</p>
+<p>There's also a second approach which, while possibly more difficult for a Rust
+library designer, is considerably nicer to work with when you're calling it
+from other languages. Instead of the <code>version()</code> function returning a string
+which needs to be deallocated afterwards, the caller will pass our function a
+buffer which the callee writes into, returning the number of bytes written.</p>
+<pre><code class="language-rust">#[no_mangle]
+pub unsafe extern &quot;C&quot; fn version_with_buffer(buf: *mut u8, len: c_int) -&gt; c_int {
+    if buf.is_null() {
+        return -1;
+    }
+
+    let mut buffer = slice::from_raw_parts_mut(buf, len as usize);
+    let version_number = CString::new(&quot;0.1.0&quot;).unwrap();
+    buffer.write(version_number.as_bytes_with_nul())
+        .map(|n| n as c_int)
+        .unwrap_or(-1)
+}
+</code></pre>
+<p>Now anyone wanting to get the version number for my Rust library just needs to
+allocate their own buffer, pass it in, then read the (UTF-8) bytes afterwards.</p>
+<p>Here's roughly how you'd call the Rust functions from C
+(<a href="./strings/main_versions.c">main_versions.c</a>):</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+char* version();
+void string_destroy(char *s);
+int version_with_buffer(char *buf, int len);
+
+
+int main() {
+    char *version_1 = version();
+    printf(&quot;Version from method 1: %s\n&quot;, version_1);
+    string_destroy(version_1);
+
+    char buffer[10];
+    version_with_buffer(buffer, 10);
+    printf(&quot;Version from method 2: %s\n&quot;, buffer);
+}
+</code></pre>
+<p>This second version is a lot more robust in the face of errors because the
+buffer is usually just an array allocated on the stack. Then if ever there's an
+exception or a panic it'll automatically get deallocated when the function
+returns. It also avoids an extra heap allocation, if you're into those kinds of
+micro-optimisations.</p>
+<a class="header" href="print.html#making-rust-pythonic" name="making-rust-pythonic"><h1>Making Rust Pythonic</h1></a>
+<p>Lets give C a rest for a while and try to speed up our Python programs. For
+this example I'm going to try and build a <em>pythonic</em> interface to the amazing
+<a href="https://github.com/huonw/primal">primal</a> crate.</p>
+<a class="header" href="print.html#exposing-the-primal-api" name="exposing-the-primal-api"><h2>Exposing The Primal API</h2></a>
+<p>Because of the way shared libraries and DLLs work, you can't export classes or
+structs with methods attached. Instead all you get to work with are functions,
+this isn't a massive issue though because when you think about it methods are
+just functions who's first parameter (<code>self</code>) has a special meaning in that
+language.</p>
+<p>Using an object oriented design across FFI boundaries is just a case of writing
+shims on either side which will flatten methods into a bunch of <strong>similarly
+named</strong> functions which all take a pointer to <code>self</code> as their first parameter.
+On the other side, the caller does the opposite.</p>
+<p>The main thing you need to be aware of is who's job it is to deallocate
+something at the end of the day. As a rule of thumb, if a language allocates
+some piece of data you need to hand it back to them so it can be deallocated.</p>
+<p>Without further ado, here's <a href="./pythonic/primes/src/lib.rs">some code</a>:</p>
+<pre><code class="language-rust">extern crate primal;
+extern crate libc;
+
+use primal::{Primes, Sieve};
+
+#[no_mangle]
+pub extern &quot;C&quot; fn sieve_new(limit: libc::c_uint) -&gt; *mut Sieve {
+    let s = Sieve::new(limit as usize);
+    Box::into_raw(Box::new(s))
+}
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn sieve_destroy(sieve: *mut Sieve) {
+    if !sieve.is_null() {
+        Box::from_raw(sieve);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn sieve_upper_bound(sieve: *const Sieve) -&gt; libc::c_uint {
+    (&amp;*sieve).upper_bound() as libc::c_uint
+}
+
+/// Checks whether a number is prime. A non-zero response indicates `true`.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn sieve_is_prime(sieve: *const Sieve, n: libc::c_uint) -&gt; libc::int8_t {
+    (&amp;*sieve).is_prime(n as usize) as libc::int8_t
+}
+
+
+#[no_mangle]
+pub extern &quot;C&quot; fn primes_new() -&gt; *mut Primes {
+    let iterator = Primes::all();
+    Box::into_raw(Box::new(iterator))
+}
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn primes_destroy(primes: *mut Primes) {
+    if !primes.is_null() {
+        Box::from_raw(primes);
+    }
+}
+
+/// Get the next prime in the series.
+///
+/// # Remarks
+///
+/// If zero is returned then there the iterator is finished.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn primes_next(primes: *mut Primes) -&gt; libc::c_uint {
+    (&amp;mut *primes).next().unwrap_or(0)
+}
+</code></pre>
+<p>You can see that almost all of this is trivial code. Apart from the odd check
+for a <code>NULL</code> pointer, we're just allocating structs on the heap with <code>Box</code>,
+then passing back a pointer to it. <code>Box::into_raw()</code> and <code>Box::from_raw()</code> are
+in charge of converting from a raw pointer to a <code>Box</code> and back again, allowing
+us to take advantage of Rust's <a href="https://doc.rust-lang.org/std/ops/trait.Drop.html">Drop</a> trait to clean up for us.</p>
+<p>There are a couple strange points though, you may have noticed me using
+<code>&amp;*sieve</code> once or twice. This just lets you convert from a <code>*mut T</code> (or
+<code>*const T</code>)to a <code>&amp;T</code> so you can use the object's normal methods. You need to
+explicitly convert to a borrow like this because raw pointers don't let you
+use a struct's methods. likewise the <code>&amp;mut *primes</code> lets me convert to a mutable
+borrow, the parentheses are mainly there to make it clearer to the parser what
+we are doing.</p>
+<p>If any of you have heard of the <a href="https://doc.rust-lang.org/book/ffi.html#the-nullable-pointer-optimization">nullable pointer optimisation</a> you'll
+know that one way of returning (or receiving) a pointer which may be <code>null</code> is
+to represent it as an <code>Option&lt;Box&lt;T&gt;&gt;</code>. A good example of when you could use
+this is to skip the <code>some_ptr.is_null()</code> check I used in the destructors and
+only recreate the <code>Box</code> if <code>Some</code> was passed in. This is more a matter of style
+than anything else, I just prefer using the <code>is_null()</code> check because it's
+more explicit what you're doing.</p>
+<blockquote>
+<p><strong>Hint:</strong> when crossing the FFI boundary you tend to play fast and loose with
+your pointers and data types. You'll notice that I've marked any function
+which is recieving raw pointers from an untrusted source (i.e. Python/C) as
+<code>unsafe</code>. Typically you'd go to great lengths to document under what
+conditions the user will violate memory safety. I often use the  <code># Safety</code>
+and <code># Remarks</code> headers in my doc-comments for each function which could
+provoke unsafe behaviour.</p>
+<p>Also, make sure you document your exported functions. I've been forced to use
+more than enough proprietary libraries with non-existent documentation, please
+don't add to the problem!</p>
+</blockquote>
+<a class="header" href="print.html#wrapping-it-with-python" name="wrapping-it-with-python"><h2>Wrapping It With Python</h2></a>
+<p>I'll be using the <a href="http://cffi.readthedocs.io/en/latest/overview.html">cffi</a> library for the calling our exported functions
+from Python, it's a lot less verbose than [ctypes][ctypes] (from the standard
+library), and if you have a header file handy then you essentially get FFI
+bindings for free. It also manages a lot of the low level coersion between
+Python and C types (i.e. a using a Python byte string as a <code>char *</code>).</p>
+<p>First you'll need to make sure <code>cffi</code> is installed:</p>
+<pre><code class="language-bash">$ pip3 install cffi
+</code></pre>
+<p>I'll try to break the python bit into chunks to make it easier to digest. This
+is the contents of my <a href="./pythonic/main.py">main.py</a>.</p>
+<pre><code class="language-python">import itertools
+from cffi import FFI
+
+ffi = FFI()
+
+ffi.cdef(&quot;&quot;&quot;
+    void* sieve_new(unsigned int limit);
+    void sieve_destroy(void *sieve);
+    unsigned int sieve_upper_bound(void *sieve);
+    unsigned int sieve_is_prime(void *sieve, unsigned int n);
+
+    void* primes_new();
+    void primes_destroy(void *primes);
+    unsigned int primes_next(void *primes);
+    &quot;&quot;&quot;)
+
+primal = ffi.dlopen('./primes/target/debug/libprimes.so')
+</code></pre>
+<p>Here we're importing <code>cffi</code> and declaring the functions we want to use. If you
+look carefully you'll notice that this is the exact same thing you'd usually
+put in a C header file.</p>
+<p>Next we make a nice wrapper around the <code>Sieve</code>. I'm using a
+<a href="http://eigenhombre.com/introduction-to-context-managers-in-python.html">context manager</a> to make sure that resources get initialized at the start
+of the <code>with</code> block, then they're freed again upon leaving it. This means that
+even if my code throws an exception the <code>Sieve</code> destructor will still get
+called.</p>
+<pre><code class="language-python">class Sieve:
+    def __init__(self, limit):
+        self.limit = limit
+        self.sieve = None
+
+    def __enter__(self):
+        self.sieve = primal.sieve_new(self.limit)
+        return self
+
+    def __exit__(self, *args):
+        primal.sieve_destroy(self.sieve)
+
+    def is_prime(self, n):
+        return primal.sieve_is_prime(self.sieve, n) != 0
+
+    def upper_bound(self):
+        return primal.sieve_upper_bound(self.sieve)
+</code></pre>
+<p>We then do a similar thing for our prime number iterator, converting the
+repetitive <code>primes_next()</code> call into a more pythonic iterator with
+<code>__iter__()</code>.</p>
+<pre><code class="language-python">class Primes:
+    def __enter__(self):
+        self.iterator = primal.primes_new()
+        return self
+
+    def __exit__(self, *args):
+        primal.primes_destroy(self.iterator)
+
+    def next(self):
+        return primal.primes_next(self.iterator)
+
+    def __iter__(self):
+        running = True
+        while running:
+            prime = self.next()
+            yield prime
+            running = prime != 0
+</code></pre>
+<p>And finally we can run it:</p>
+<pre><code class="language-python">if __name__ == &quot;__main__&quot;:
+    with Sieve(10000) as s:
+        print(s.is_prime(5))
+
+    with Primes() as p:
+        n = 20
+        primes = list(itertools.islice(p, n))
+        print('The first {} prime numbers are {}'.format(n, ', '.join(primes)))
+</code></pre>
+<p>If you were paying close attention when I first defined our Rust functions you
+may have noticed that I use a <code>void *</code> instead of <code>*mut Sieve</code> and
+<code>*mut Primes</code>. This is sometimes known as an <a href="https://en.wikipedia.org/wiki/Opaque_pointer">opaque pointer</a> and allows
+you to pass some pointer to someone without letting them know the type or how
+the thing being pointed to is laid out in memory. You can think of this as a
+form of information hiding, forcing the caller to go through just the methods
+your API exposes.</p>
+<blockquote>
+<p><strong>Note:</strong> You should have noticed how small these FFI bindings were, with most
+of them being 1 or 2 lines long. <strong>This was no accident</strong>. When passing
+data across FFI boundaries all you want to do is basic sanity checks like
+<code>ptr.is_null()</code> and casts, then defer to the the relevant functions/methods.</p>
+<p>The more logic in your FFI bindings, the higher the risk of bugs. Considering
+a bug in FFI bindings has the potential for memory corruption or segfaults,
+the last thing you should be doing is putting business logic in FFI bindings.</p>
+</blockquote>
+<a class="header" href="print.html#generating-bindings-and-writing-wrappers" name="generating-bindings-and-writing-wrappers"><h1>Generating Bindings and Writing Wrappers</h1></a>
+<p>A lot of the time you'll have a large amount of existing C (or C++, but more of
+that later) code which you need to integrate your Rust tools into, a great
+example of this is <a href="https://github.com/sfackler/rust-openssl">OpenSSl</a> or <a href="https://github.com/alexcrichton/git2-rs">git</a>. Unless the C code is
+fairly small or trivial it's not going to be feasible to port to Rust, plus
+why re-invent the wheel when you could be doing more interesting stuff?</p>
+<p>Luckily with Rust you can have your cake and eat it too. As you'll already know
+Rust can transparently call C functions as long as you have declarations for
+them so the compiler knows what symbols to use. Enter <a href="https://github.com/servo/rust-bindgen">bindgen</a>.</p>
+<p>Bindgen does all the hard work of parsing C-style header files and generating
+the equivalent Rust function definitions. They've also got a
+<a href="http://fitzgeraldnick.com/2016/12/14/using-libbindgen-in-build-rs.html">great tutorial</a> for getting started so I'm not going to bother
+reiterating the basics. Instead, we'll try to focus on the more high level
+stuff which comes with using a C library from Rust, seeing as the zero cost
+abstractions and high level way of approaching things is probably why you're
+trying to do this FFI stuff in the first place!</p>
+<a class="header" href="print.html#getting-set-up" name="getting-set-up"><h2>Getting Set Up</h2></a>
+<p>We'll be building on top of the <a href="http://fitzgeraldnick.com/2016/12/14/using-libbindgen-in-build-rs.html">great tutorial</a> I linked earlier to write
+an idiomatic Rust wrapper around <code>bzip2</code>. I'll assume you've already read
+through that tutorial and focus more on the next step, writing the actual
+wrapper code and using common Rust patterns.</p>
+<p>First we'll create a new crate:</p>
+<pre><code class="language-bash">$ cargo new bzip2
+</code></pre>
+<p>Then add <code>bindgen</code> as a dependency and tell <code>Cargo</code> about our build script
+(which doesn't actually exist yet):</p>
+<pre><code> name = &quot;bzip2&quot;
+ version = &quot;0.1.0&quot;
+ authors = [&quot;Michael-F-Bryan &lt;michaelfbryan@gmail.com&gt;&quot;]
++build = &quot;build.rs&quot;
+ 
+ [dependencies]
++
++[build-dependencies]
++bindgen = &quot;0.20.0&quot;
+</code></pre>
+<p><code>Bindgen</code> works by reading a <code>C</code>-style header file using <code>libclang</code>, then
+it runs the preprocessor and creates bindings based on the output. Therefore,
+before we can start our build script we'll need a dummy header which pulls in
+the <code>bzip2</code> library installed on your system.</p>
+<pre><code class="language-c">// wrapper.h
+#include &lt;bzlib.h&gt;
+</code></pre>
+<p>Now we can create our <code>build.rs</code> script. This gets run before the crate is
+compiled, and allows us to generate code at compile time.</p>
+<pre><code class="language-Rust">extern crate bindgen;
+
+use std::env;
+use std::path::PathBuf;
+
+fn main() {
+    println!(&quot;cargo:rustc-link-lib=bz2&quot;);
+
+    let bindings = bindgen::Builder::default()
+        .no_unstable_rust()
+        .header(&quot;wrapper.h&quot;)
+        .generate()
+        .expect(&quot;Unable to generate bindings&quot;);
+
+    let out_path = PathBuf::from(env::var(&quot;OUT_DIR&quot;).unwrap());
+    bindings
+        .write_to_file(out_path.join(&quot;bindings.rs&quot;))
+        .expect(&quot;Couldn't write bindings!&quot;);
+}
+</code></pre>
+<p>Let's compile everything created so far to make sure it actually works.</p>
+<pre><code class="language-bash">$ cargo build 
+    Updating registry `https://github.com/rust-lang/crates.io-index`
+Downloading bindgen v0.20.5
+Downloading syntex_syntax v0.54.0
+...
+Finished debug [unoptimized + debuginfo] target(s) in 12.41 secs
+</code></pre>
+<p>So far, we haven't actually written any code so our <code>lib.rs</code> file should still
+just have the auto-generated <code>it_works()</code> test. If you want to view the
+generated bindings, you'll see that it's not exactly the nicest Rust code to
+look at...</p>
+<pre><code class="language-bash">$ find -name &quot;bindings.rs&quot;
+./target/debug/build/bzip2-cd18fea72e03763e/out/bindings.rs
+</code></pre>
+<p>And here are a couple excerpts from that file:</p>
+<pre><code class="language-Rust">// selected output from ./target/debug/build/bzip2-cd18fea72e03763e/out/bindings.rs
+
+/* automatically generated by rust-bindgen */
+
+#[repr(C)]
+pub struct __BindgenUnionField&lt;T&gt;(::std::marker::PhantomData&lt;T&gt;);
+impl &lt;T&gt; __BindgenUnionField&lt;T&gt; {
+    #[inline]
+    pub fn new() -&gt; Self { __BindgenUnionField(::std::marker::PhantomData) }
+    #[inline]
+    pub unsafe fn as_ref(&amp;self) -&gt; &amp;T { ::std::mem::transmute(self) }
+    #[inline]
+    pub unsafe fn as_mut(&amp;mut self) -&gt; &amp;mut T { ::std::mem::transmute(self) }
+}
+
+...
+
+pub const BZ_RUN: ::std::os::raw::c_uint = 0;
+pub const BZ_FLUSH: ::std::os::raw::c_uint = 1;
+pub const BZ_FINISH: ::std::os::raw::c_uint = 2;
+pub const BZ_OK: ::std::os::raw::c_uint = 0;
+pub const BZ_RUN_OK: ::std::os::raw::c_uint = 1;
+pub const BZ_FLUSH_OK: ::std::os::raw::c_uint = 2;
+
+...
+
+#[repr(C)]
+#[derive(Debug, Copy)]
+pub struct _bindgen_ty_1 {
+    pub next_in: *mut ::std::os::raw::c_char,
+    pub avail_in: ::std::os::raw::c_uint,
+    pub total_in_lo32: ::std::os::raw::c_uint,
+    pub total_in_hi32: ::std::os::raw::c_uint,
+    pub next_out: *mut ::std::os::raw::c_char,
+    pub avail_out: ::std::os::raw::c_uint,
+    pub total_out_lo32: ::std::os::raw::c_uint,
+    ...
+}
+pub type bz_stream = _bindgen_ty_1;
+</code></pre>
+<p>I usually like to put my FFI bindings in their own sub-module, we can now
+replace the contents of <code>lib.rs</code> and recompile.</p>
+<pre><code class="language-Rust">pub mod ffi {
+    #![allow(non_upper_case_globals)]
+    #![allow(non_camel_case_types)]
+    #![allow(non_snake_case)]
+
+    include!(concat!(env!(&quot;OUT_DIR&quot;), &quot;/bindings.rs&quot;));
+}
+</code></pre>
+<blockquote>
+<p><strong>Note:</strong> You'll notice I made the <code>ffi</code> module public. I've done this during
+the development stage so we can easily view the FFI bindings using
+<code>cargo doc --open</code>. We'll make it private later on so users are forced to go
+through our Rust-ic API.</p>
+</blockquote>
+<a class="header" href="print.html#creating-the-rust-wrapper" name="creating-the-rust-wrapper"><h2>Creating The Rust Wrapper</h2></a>
+<p>Now that we've got a basic crate and know our build system works (i.e.
+<code>bindgen</code> is creating our bindings, and we can get started on wrapping the
+<code>bzip2</code> library and giving it a safe API.</p>
+<p>The best way to figure out how our wrapper API should look is to find existing
+code and (roughly) copy that. Luckily <code>libbzip2</code> documents its low level
+interface <a href="http://www.bzip.org/1.0.5/bzip2-manual-1.0.5.html#libprog">on their website</a> and they explain how each of the
+functions work. According to the docs, this is roughly how you'd compress some
+data:</p>
+<blockquote>
+<p>That still looks complicated? Well, fair enough. The usual sequence of
+calls for compressing a load of data is:</p>
+<ol>
+<li>Get started with <code>BZ2_bzCompressInit()</code>.</li>
+</ol>
+<p>Shovel data in and shlurp out its compressed form using zero or more calls
+of <code>BZ2_bzCompress()</code> with action = <code>BZ_RUN</code>.</p>
+<p>Finish up. Repeatedly call <code>BZ2_bzCompress()</code> with action = <code>BZ_FINISH</code>,
+copying out the compressed output, until <code>BZ_STREAM_END</code> is returned.</p>
+<p>Close up and go home. Call <code>BZ2_bzCompressEnd()</code>.</p>
+</blockquote>
+<p>From this, my thinking is that you'll want some <code>Compressor</code> object which
+contains the <code>bz_stream</code>. We'll run <code>BZ2_bzCompressInit()</code> in the constructor
+and write a <code>Drop</code> impl which calls <code>BZ2_bzCompressEnd()</code>. To make things
+simple this won't be a streaming compressor so we'll just compress everything
+from an input <code>Read</code>-er and write it to a <code>Write</code>-r. I wouldn't recommend
+trying to compress gigabyte-sized files, but it should work well enough.</p>
+<p>Error handling should be fairly easy, all <code>libbzip2</code> functions return an
+integer which corresponds to a error code, this should be fairly trivial to map
+to a Rust enum and we'll add a <code>std::convert::From&lt;i32&gt;</code> impl for convenience
+(so you can call <code>error_code.into()</code> to automatically get the error enum).</p>
+<p>Technically the <code>BZ2_bzCompressEnd()</code> destructor could fail if we pass in an
+invalid stream, but if that's the case then the worst that happens is we leak
+memory. I'll just ignore errors in the <code>Drop</code> impl for now.</p>
+<p>First for the <code>Compressor</code> definition:</p>
+<pre><code class="language-Rust">pub struct Compressor {
+    stream: Box&lt;ffi::bz_stream&gt;,
+}
+</code></pre>
+<p>Next we'll write a <code>new()</code> method which creates a zeroed <code>bz_stream</code> and then
+initializes it with the <code>BZ2_bzCompressInit()</code> function. You'll notice that
+any return code other than <code>ffi::BZ_OK</code> is cast to i32 and converted to a
+<code>Bzip2Error</code>.</p>
+<pre><code class="language-Rust">impl Compressor {
+    pub fn new() -&gt; Result&lt;Compressor, Bzip2Error&gt; {
+        unsafe {
+            let mut comp = Compressor { stream: Box::new(mem::zeroed()) };
+            let result = ffi::BZ2_bzCompressInit(&amp;mut *comp.stream,
+                                                 1, // 1 x 100000 block size
+                                                 0, // verbosity (4 = most verbose)
+                                                 0); // default work factor
+            match result as u32 {
+                ffi::BZ_OK =&gt; Ok(comp),
+                other =&gt; Err((other as i32).into()),
+            }
+        }
+    }
+</code></pre>
+<p>The <code>compress()</code> method is a bit more complicated, in it we have to:</p>
+<ul>
+<li>Read all the input into a buffer</li>
+<li>Create an output buffer of similar length</li>
+<li>Set the corresponding properties on the <code>self.stream</code> struct so that
+<code>libbzip2</code> knows where the buffers are and their sizes</li>
+<li>Call the <code>ffi::BZ2_bzCompress()</code> function</li>
+<li>Deal with the result by either:
+<ul>
+<li>Writing the compressed output to the destination, or</li>
+<li>Returning the correct error</li>
+</ul>
+</li>
+</ul>
+<pre><code class="language-Rust">    pub fn compress&lt;R: Read, W: Write&gt;(&amp;mut self,
+                                       mut src: R,
+                                       mut dest: W)
+                                       -&gt; Result&lt;(), Bzip2Error&gt; {
+        let mut input = vec![];
+        src.read_to_end(&amp;mut input)?;
+        let mut compressed_output = vec![0; input.len()];
+
+        self.stream.next_in = input.as_ptr() as *mut _;
+        self.stream.avail_in = input.len() as _;
+        self.stream.next_out = compressed_output.as_mut_ptr() as *mut _;
+        self.stream.avail_out = compressed_output.len() as _;
+
+        unsafe {
+            let result = ffi::BZ2_bzCompress(&amp;mut *self.stream, ffi::BZ_FINISH as _);
+            match result as u32 {
+                ffi::BZ_FINISH_OK |
+                ffi::BZ_RUN_OK |
+                ffi::BZ_FLUSH_OK |
+                ffi::BZ_STREAM_END =&gt; {
+                    dest.write_all(&amp;mut compressed_output)
+                        .map(|_| ())
+                        .map_err(|e| e.into())
+                }
+                other =&gt; Err((other as i32).into()),
+            }
+        }
+    }
+}
+</code></pre>
+<blockquote>
+<p><strong>Note:</strong> This function definitely violates the *Single Responsibility
+Principle* and should be refactored out into several functions, but for the
+sake of this example I won't worry about it.</p>
+</blockquote>
+<p>Finally we need to write a <code>Drop</code> implementation to make sure everything is
+cleaned up correctly afterwards. This one is really simple.</p>
+<pre><code class="language-Rust">impl Drop for Compressor {
+    fn drop(&amp;mut self) {
+        unsafe {
+            ffi::BZ2_bzCompressEnd(&amp;mut *self.stream);
+        }
+    }
+}
+</code></pre>
+<blockquote>
+<p><strong>Exercise for the reader:</strong> Try to figure out a way to handle errors in the
+destructor. What would happen when there's a panic further down the stack and
+this <code>drop()</code> fails when it's unrolling?</p>
+</blockquote>
+<p>To handle errors, I just made a simple enum which corresponds to either a
+<code>libbzip2</code> error constant or an <code>io::Error</code>.</p>
+<pre><code class="language-Rust">#[derive(Debug)]
+pub enum Bzip2Error {
+    Config,
+    Params,
+    Memory,
+    InvalidSequence,
+    Io(Box&lt;io::Error&gt;),
+}
+
+impl From&lt;i32&gt; for Bzip2Error {
+    fn from(val: i32) -&gt; Bzip2Error {
+        match val {
+            ffi::BZ_CONFIG_ERROR =&gt; Bzip2Error::Config,
+            ffi::BZ_PARAM_ERROR =&gt; Bzip2Error::Params,
+            ffi::BZ_MEM_ERROR =&gt; Bzip2Error::Memory,
+            ffi::BZ_SEQUENCE_ERROR =&gt; Bzip2Error::InvalidSequence,
+            unknown =&gt; panic!(&quot;Invalid error code: {}&quot;, unknown),
+        }
+    }
+}
+
+impl From&lt;io::Error&gt; for Bzip2Error {
+    fn from(val: io::Error) -&gt; Bzip2Error {
+        Bzip2Error::Io(Box::new(val))
+    }
+}
+</code></pre>
+<a class="header" href="print.html#ffi-best-practices" name="ffi-best-practices"><h1>FFI Best Practices</h1></a>
+<p>These are some best practices I've picked up while using Rust code from other
+languages at work. They most definitely should <strong>not</strong> be taken as gospel, and
+if you believe a point could do with improving or is just downright wrong then
+please, please, please <a href="https://github.com/Michael-F-Bryan/rust-ffi-guide/issues/new">create an issue</a> and let me know!</p>
+<a class="header" href="print.html#memory-management" name="memory-management"><h2>Memory Management</h2></a>
+<p>Because passing pointers to objects between languages is such a large part of
+FFI, memory management and memory safety is probably going to be the most error
+prone part of using/creating libraries across library boundaries.</p>
+<p>Rust forces the developer to constantly keep memory management in mind with its
+concepts of lifetimes and borrowing. This works out to be a massive advantage
+when writing FFI bindings because you constantly ask yourself questions like
+&quot;who currently owns this bit of memory?&quot; and &quot;who's job is it to free this when
+I'm done?&quot;. Because the compiler can no longer protect you against things like
+aliased pointers and double frees the job of enforcing memory safety now falls
+to <strong>you</strong> as the developer.</p>
+<p>In general, you'll want to:</p>
+<ul>
+<li>Provide explicit constructors and destructors for everything</li>
+<li>Make sure that memory is only free'd from the language it was allocated in</li>
+<li>Check for null pointers. Everywhere.</li>
+<li>Document the assumptions which are normally enforced by the Rust type system
+like whether a function recieving a pointer gains ownership of the data being
+pointed to or is only taking it as a reference</li>
+</ul>
+<p>Where possible, try to enforce memory safety to prevent against accidental
+programming errors. That said, you should explicitly state what is valid and
+will work, and if the user violates these assumptions then they're probably
+invoking undefined behaviour and they're on their own.</p>
+<p>I know that's not a particularly satisfying thing to say, but when you are
+working at such a low level you generally have to assume the caller knows what
+they're doing. There isn't all that much you can do against someone who's
+determined to shoot themselves in the foot though...</p>
+<a class="header" href="print.html#documentation" name="documentation"><h2>Documentation</h2></a>
+<p>When you cross the FFI layer, you lose almost all the help you'd usually get
+from the typesystem. The only way to compensate for this is with documentation
+so <strong>make sure you document everything</strong>.</p>
+<p>If a constructor returns <code>NULL</code> when it fails then that should be part of the
+doc comments. Even something as simple as this is sufficient:</p>
+<pre><code class="language-rust">/// Creates a new `Foo`. If the creation fails then this returns `null`.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; foo_create() -&gt; *mut Foo {
+    // insert implementation here
+}
+</code></pre>
+<p>Likewise, you must document all assumptions. If a function consumes the
+resource being pointed to by a pointer then you should state that. For
+example you might try to add some <code>Point</code> object to the <code>Foo</code> object we created
+earlier.</p>
+<pre><code class="language-rust">/// Adds a `Point` to the `Foo` object. In the process, consuming the original
+/// `Point`.
+/// 
+/// # Safety
+///
+/// This function will consume the `point` argument, trying to use it afterwards
+/// is undefined behaviour and will probably result in a `use-after-free`.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; foo_add_point(foo: *mut Foo, point: *mut Point) {
+    let p = Box::from_raw(point);
+    (&amp;mut *foo).add_point(p);
+}
+</code></pre>
+<p>Notice how I added an explicit <code>Safety</code> section to the doc comment? You can use
+these to explicitly bring ownership and memory safety assumptions to the user's
+attention. other common section names you might want to use liberally are
+<code>Errors</code> and <code>Examples</code>.</p>
+<p>I don't know about you, but I wouldn't be too happy with the library
+author if I had to manually discover this after spending a couple hours with in
+debugger trying to figure out why a particular part of my program segfaults,
+when all that could have been avoided with an extra line of documentation.</p>
+<p>You should also make sure your documentation is easily accessible. If your crate
+is published on <code>crates.io</code> then it's automatically documented on <code>docs.rs</code>,
+but if it's something internal to your company then consider setting up a git
+hook which will rebuild the docs and push it to an internal server. Rust's
+built in documentation tools are some of the best in the world, so make sure to
+use them.</p>
+<blockquote>
+<p><strong>Hint:</strong> Another really useful practice is to write a header file for your
+exported symbols. If the caller is using C or C++ then they can just
+<code>#include</code> the header file directly. Likewise, Python's [cffi][cffi] can
+generate bindings from a header file.</p>
+<p>Distributing a header file alongside your library goes a long way to making
+it easier to use from other languages.</p>
+</blockquote>
+<a class="header" href="print.html#panics-and-exceptions" name="panics-and-exceptions"><h2>Panics and Exceptions</h2></a>
+<p>Panics and exceptions should never cross an FFI boundary. <strong>Ever</strong>. Doing so is
+undefined behaviour, and will likely result in significant amounts of pain or
+time wasted in a debugger.</p>
+<p>If you're lucky then a thrown exception or a Rust panic will crash your program
+immediately, otherwise it might go on, but with completely garbled state.</p>
+<p>Instead you'll want to make sure that you wrap your code in a <code>try/catch</code> block
+or <a href="https://doc.rust-lang.org/std/panic/fn.catch_unwind.html">catch_unwind()</a>, depending on the language. You should then
+make sure to either handle that error or notify a caller/callee appropriately.</p>
+<p>For more detail on error handling, check the Error Handling section of this
+book.</p>
+<!-- TODO: write the error handling part and provide a link to it -->
+<a class="header" href="print.html#api-design" name="api-design"><h2>API Design</h2></a>
+<p>TODO: Talk about KISS, opaque pointers, and consistent naming</p>
+<a class="header" href="print.html#tests" name="tests"><h2>Tests</h2></a>
+<p>When you start crossing the language barrier you can no longer rely on the
+compiler to make sure you are using things in the right way. As a result, every
+function should have at least one test to ensure that it works correctly under
+sane conditions.</p>
+<p>This is usually the callee's responsibility because they will often be writing
+an idiomatic wrapper around the raw FFI calls to add a layer of safety and
+ergonomics.</p>
+<p>In one of the projects I did at work I'd hack on my Rust library, using the
+built in <code>cargo test</code> to ensure functionality worked. Then I also distributed
+bindings for that library in the main language and alongside those bindings was
+a test suite which exercised them. This helped to ensure correctness and to
+find any bugs which might result in memory issues.</p>
+<a class="header" href="print.html#when-not-to-use-ffi" name="when-not-to-use-ffi"><h2>When Not To Use FFI</h2></a>
+<p>TODO: Rewrite this into something more applicable to Rust
+(currently just copied from https://spin.atomicobject.com/2013/02/15/ffi-foreign-function-interfaces/)</p>
+<p>You need to implement your own low-level or highly-optimized code. Ideally,
+the functions in the C library you are wrapping will do most of the heavy
+lifting, but if you need to write some custom code to directly process huge
+arrays of numerical or binary data, you might need to write code in C or
+another lower-level language to get the performance you want.</p>
+<p>You need to perform some delicate callbacks from the guest language into the
+host language. Although it’s sometimes possible (depending on the host
+language’s FFI support) to perform callbacks, some kinds of complex callback
+function signatures can be quite tricky to satisfy through FFI.</p>
+<p>The library makes heavy use of compile-time or preprocessor features, such as
+C macros. In the case of simple macros, you may be able to reimplement its
+behavior as a function in your language of choice. But if the library does
+some serious macro-fu, you might be better off just writing a C extension.</p>
+<a class="header" href="print.html#callbacks" name="callbacks"><h2>Callbacks</h2></a>
+<p>Allowing the foreign code to run some callback to notify the callee when
+something happens is really useful. For example, say you're writing a Python
+program which calls out to Rust for doing a really expensive calculation or
+simulation then it'd be nice for Rust to notify the Python program of its
+progress every now and then so you know it's still alive.</p>
+<p>That said, unless you have very good reasons not to, your callback signatures
+should be simple, shallow, and well-documented. Anything more complex than
+something which takes an event type (enum) and a numerical argument, <em>possibly</em>
+also returning a bool to indicate whether to continue is a code smell.</p>
+<p>i.e. <code>type progress_callback = fn(e: EventType, arg: f64) -&gt; bool</code></p>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+
+                
+
+            </div>
+
+            
+
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

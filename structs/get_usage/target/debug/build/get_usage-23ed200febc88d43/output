@@ -1,0 +1,35 @@
+TARGET = Some("x86_64-unknown-linux-gnu")
+OPT_LEVEL = Some("0")
+TARGET = Some("x86_64-unknown-linux-gnu")
+HOST = Some("x86_64-unknown-linux-gnu")
+TARGET = Some("x86_64-unknown-linux-gnu")
+TARGET = Some("x86_64-unknown-linux-gnu")
+HOST = Some("x86_64-unknown-linux-gnu")
+CC_x86_64-unknown-linux-gnu = None
+CC_x86_64_unknown_linux_gnu = None
+HOST_CC = None
+CC = None
+HOST = Some("x86_64-unknown-linux-gnu")
+TARGET = Some("x86_64-unknown-linux-gnu")
+HOST = Some("x86_64-unknown-linux-gnu")
+CFLAGS_x86_64-unknown-linux-gnu = None
+CFLAGS_x86_64_unknown_linux_gnu = None
+HOST_CFLAGS = None
+CFLAGS = None
+PROFILE = Some("debug")
+running: "cc" "-O0" "-ffunction-sections" "-fdata-sections" "-fPIC" "-g" "-m64" "-o" "/home/travis/build/Michael-F-Bryan/rust-ffi-guide/src/structs/get_usage/target/debug/build/get_usage-23ed200febc88d43/out/src/usage.o" "-c" "src/usage.c"
+ExitStatus(ExitStatus(0))
+TARGET = Some("x86_64-unknown-linux-gnu")
+TARGET = Some("x86_64-unknown-linux-gnu")
+HOST = Some("x86_64-unknown-linux-gnu")
+AR_x86_64-unknown-linux-gnu = None
+AR_x86_64_unknown_linux_gnu = None
+HOST_AR = None
+AR = None
+TARGET = Some("x86_64-unknown-linux-gnu")
+TARGET = Some("x86_64-unknown-linux-gnu")
+running: "ar" "crs" "/home/travis/build/Michael-F-Bryan/rust-ffi-guide/src/structs/get_usage/target/debug/build/get_usage-23ed200febc88d43/out/libusage.a" "/home/travis/build/Michael-F-Bryan/rust-ffi-guide/src/structs/get_usage/target/debug/build/get_usage-23ed200febc88d43/out/src/usage.o"
+ExitStatus(ExitStatus(0))
+TARGET = Some("x86_64-unknown-linux-gnu")
+cargo:rustc-link-lib=static=usage
+cargo:rustc-link-search=native=/home/travis/build/Michael-F-Bryan/rust-ffi-guide/src/structs/get_usage/target/debug/build/get_usage-23ed200febc88d43/out

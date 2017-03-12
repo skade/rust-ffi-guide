@@ -1,0 +1,320 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Making Rust Pythonic (OO) - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="../">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html" class="active"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./pythonic/index.html#making-rust-pythonic" name="making-rust-pythonic"><h1>Making Rust Pythonic</h1></a>
+<p>Lets give C a rest for a while and try to speed up our Python programs. For
+this example I'm going to try and build a <em>pythonic</em> interface to the amazing
+<a href="https://github.com/huonw/primal">primal</a> crate.</p>
+<a class="header" href="./pythonic/index.html#exposing-the-primal-api" name="exposing-the-primal-api"><h2>Exposing The Primal API</h2></a>
+<p>Because of the way shared libraries and DLLs work, you can't export classes or
+structs with methods attached. Instead all you get to work with are functions,
+this isn't a massive issue though because when you think about it methods are
+just functions who's first parameter (<code>self</code>) has a special meaning in that
+language.</p>
+<p>Using an object oriented design across FFI boundaries is just a case of writing
+shims on either side which will flatten methods into a bunch of <strong>similarly
+named</strong> functions which all take a pointer to <code>self</code> as their first parameter.
+On the other side, the caller does the opposite.</p>
+<p>The main thing you need to be aware of is who's job it is to deallocate
+something at the end of the day. As a rule of thumb, if a language allocates
+some piece of data you need to hand it back to them so it can be deallocated.</p>
+<p>Without further ado, here's <a href="./pythonic/primes/src/lib.rs">some code</a>:</p>
+<pre><code class="language-rust">extern crate primal;
+extern crate libc;
+
+use primal::{Primes, Sieve};
+
+#[no_mangle]
+pub extern &quot;C&quot; fn sieve_new(limit: libc::c_uint) -&gt; *mut Sieve {
+    let s = Sieve::new(limit as usize);
+    Box::into_raw(Box::new(s))
+}
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn sieve_destroy(sieve: *mut Sieve) {
+    if !sieve.is_null() {
+        Box::from_raw(sieve);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn sieve_upper_bound(sieve: *const Sieve) -&gt; libc::c_uint {
+    (&amp;*sieve).upper_bound() as libc::c_uint
+}
+
+/// Checks whether a number is prime. A non-zero response indicates `true`.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn sieve_is_prime(sieve: *const Sieve, n: libc::c_uint) -&gt; libc::int8_t {
+    (&amp;*sieve).is_prime(n as usize) as libc::int8_t
+}
+
+
+#[no_mangle]
+pub extern &quot;C&quot; fn primes_new() -&gt; *mut Primes {
+    let iterator = Primes::all();
+    Box::into_raw(Box::new(iterator))
+}
+
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn primes_destroy(primes: *mut Primes) {
+    if !primes.is_null() {
+        Box::from_raw(primes);
+    }
+}
+
+/// Get the next prime in the series.
+///
+/// # Remarks
+///
+/// If zero is returned then there the iterator is finished.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; fn primes_next(primes: *mut Primes) -&gt; libc::c_uint {
+    (&amp;mut *primes).next().unwrap_or(0)
+}
+</code></pre>
+<p>You can see that almost all of this is trivial code. Apart from the odd check
+for a <code>NULL</code> pointer, we're just allocating structs on the heap with <code>Box</code>,
+then passing back a pointer to it. <code>Box::into_raw()</code> and <code>Box::from_raw()</code> are
+in charge of converting from a raw pointer to a <code>Box</code> and back again, allowing
+us to take advantage of Rust's <a href="https://doc.rust-lang.org/std/ops/trait.Drop.html">Drop</a> trait to clean up for us.</p>
+<p>There are a couple strange points though, you may have noticed me using
+<code>&amp;*sieve</code> once or twice. This just lets you convert from a <code>*mut T</code> (or
+<code>*const T</code>)to a <code>&amp;T</code> so you can use the object's normal methods. You need to
+explicitly convert to a borrow like this because raw pointers don't let you
+use a struct's methods. likewise the <code>&amp;mut *primes</code> lets me convert to a mutable
+borrow, the parentheses are mainly there to make it clearer to the parser what
+we are doing.</p>
+<p>If any of you have heard of the <a href="https://doc.rust-lang.org/book/ffi.html#the-nullable-pointer-optimization">nullable pointer optimisation</a> you'll
+know that one way of returning (or receiving) a pointer which may be <code>null</code> is
+to represent it as an <code>Option&lt;Box&lt;T&gt;&gt;</code>. A good example of when you could use
+this is to skip the <code>some_ptr.is_null()</code> check I used in the destructors and
+only recreate the <code>Box</code> if <code>Some</code> was passed in. This is more a matter of style
+than anything else, I just prefer using the <code>is_null()</code> check because it's
+more explicit what you're doing.</p>
+<blockquote>
+<p><strong>Hint:</strong> when crossing the FFI boundary you tend to play fast and loose with
+your pointers and data types. You'll notice that I've marked any function
+which is recieving raw pointers from an untrusted source (i.e. Python/C) as
+<code>unsafe</code>. Typically you'd go to great lengths to document under what
+conditions the user will violate memory safety. I often use the  <code># Safety</code>
+and <code># Remarks</code> headers in my doc-comments for each function which could
+provoke unsafe behaviour.</p>
+<p>Also, make sure you document your exported functions. I've been forced to use
+more than enough proprietary libraries with non-existent documentation, please
+don't add to the problem!</p>
+</blockquote>
+<a class="header" href="./pythonic/index.html#wrapping-it-with-python" name="wrapping-it-with-python"><h2>Wrapping It With Python</h2></a>
+<p>I'll be using the <a href="http://cffi.readthedocs.io/en/latest/overview.html">cffi</a> library for the calling our exported functions
+from Python, it's a lot less verbose than [ctypes][ctypes] (from the standard
+library), and if you have a header file handy then you essentially get FFI
+bindings for free. It also manages a lot of the low level coersion between
+Python and C types (i.e. a using a Python byte string as a <code>char *</code>).</p>
+<p>First you'll need to make sure <code>cffi</code> is installed:</p>
+<pre><code class="language-bash">$ pip3 install cffi
+</code></pre>
+<p>I'll try to break the python bit into chunks to make it easier to digest. This
+is the contents of my <a href="./pythonic/main.py">main.py</a>.</p>
+<pre><code class="language-python">import itertools
+from cffi import FFI
+
+ffi = FFI()
+
+ffi.cdef(&quot;&quot;&quot;
+    void* sieve_new(unsigned int limit);
+    void sieve_destroy(void *sieve);
+    unsigned int sieve_upper_bound(void *sieve);
+    unsigned int sieve_is_prime(void *sieve, unsigned int n);
+
+    void* primes_new();
+    void primes_destroy(void *primes);
+    unsigned int primes_next(void *primes);
+    &quot;&quot;&quot;)
+
+primal = ffi.dlopen('./primes/target/debug/libprimes.so')
+</code></pre>
+<p>Here we're importing <code>cffi</code> and declaring the functions we want to use. If you
+look carefully you'll notice that this is the exact same thing you'd usually
+put in a C header file.</p>
+<p>Next we make a nice wrapper around the <code>Sieve</code>. I'm using a
+<a href="http://eigenhombre.com/introduction-to-context-managers-in-python.html">context manager</a> to make sure that resources get initialized at the start
+of the <code>with</code> block, then they're freed again upon leaving it. This means that
+even if my code throws an exception the <code>Sieve</code> destructor will still get
+called.</p>
+<pre><code class="language-python">class Sieve:
+    def __init__(self, limit):
+        self.limit = limit
+        self.sieve = None
+
+    def __enter__(self):
+        self.sieve = primal.sieve_new(self.limit)
+        return self
+
+    def __exit__(self, *args):
+        primal.sieve_destroy(self.sieve)
+
+    def is_prime(self, n):
+        return primal.sieve_is_prime(self.sieve, n) != 0
+
+    def upper_bound(self):
+        return primal.sieve_upper_bound(self.sieve)
+</code></pre>
+<p>We then do a similar thing for our prime number iterator, converting the
+repetitive <code>primes_next()</code> call into a more pythonic iterator with
+<code>__iter__()</code>.</p>
+<pre><code class="language-python">class Primes:
+    def __enter__(self):
+        self.iterator = primal.primes_new()
+        return self
+
+    def __exit__(self, *args):
+        primal.primes_destroy(self.iterator)
+
+    def next(self):
+        return primal.primes_next(self.iterator)
+
+    def __iter__(self):
+        running = True
+        while running:
+            prime = self.next()
+            yield prime
+            running = prime != 0
+</code></pre>
+<p>And finally we can run it:</p>
+<pre><code class="language-python">if __name__ == &quot;__main__&quot;:
+    with Sieve(10000) as s:
+        print(s.is_prime(5))
+
+    with Primes() as p:
+        n = 20
+        primes = list(itertools.islice(p, n))
+        print('The first {} prime numbers are {}'.format(n, ', '.join(primes)))
+</code></pre>
+<p>If you were paying close attention when I first defined our Rust functions you
+may have noticed that I use a <code>void *</code> instead of <code>*mut Sieve</code> and
+<code>*mut Primes</code>. This is sometimes known as an <a href="https://en.wikipedia.org/wiki/Opaque_pointer">opaque pointer</a> and allows
+you to pass some pointer to someone without letting them know the type or how
+the thing being pointed to is laid out in memory. You can think of this as a
+form of information hiding, forcing the caller to go through just the methods
+your API exposes.</p>
+<blockquote>
+<p><strong>Note:</strong> You should have noticed how small these FFI bindings were, with most
+of them being 1 or 2 lines long. <strong>This was no accident</strong>. When passing
+data across FFI boundaries all you want to do is basic sanity checks like
+<code>ptr.is_null()</code> and casts, then defer to the the relevant functions/methods.</p>
+<p>The more logic in your FFI bindings, the higher the risk of bugs. Considering
+a bug in FFI bindings has the potential for memory corruption or segfaults,
+the last thing you should be doing is putting business logic in FFI bindings.</p>
+</blockquote>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+                    <a href="./strings/index.html" class="mobile-nav-chapters previous">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+                    <a href="./bindgen/index.html" class="mobile-nav-chapters next">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+
+            </div>
+
+            
+                <a href="./strings/index.html" class="nav-chapters previous" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+            
+
+            
+                <a href="./bindgen/index.html" class="nav-chapters next" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

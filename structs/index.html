@@ -1,0 +1,334 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Sharing Structs - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="../">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html" class="active"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./structs/index.html#sharing-structs" name="sharing-structs"><h1>Sharing Structs</h1></a>
+<p>Believe it or not but it's fairly easy to share structs between Rust and other
+languages. As long as you tell the Rust compiler to lay out structs &quot;how C does
+it&quot; (with <code>#[repr(C)]</code>) and have the right type declarations, everything <em>Just
+Works™</em>. It's all bytes at the end of the day, anyway.</p>
+<p>Remember how I mentioned earlier that there's an easier way to compile and link
+everything? Well there is, it's called <a href="https://docs.rs/gcc/0.3.43/gcc/index.html">gcc-rs</a>. All you need to do is
+point it at your C source code and it'll do all the hard parts like compiling
+to a static library and then providing the correct linker args to rustc.</p>
+<a class="header" href="./structs/index.html#getting-resource-usage" name="getting-resource-usage"><h2>Getting Resource Usage</h2></a>
+<p>For this example we'll be asking the kernel how many resources the current
+process is using, and to make this a lot easier to do in a platform dependent
+(-ish) manner, we'll write a small C shim that passes just the information we
+care about back to Rust.</p>
+<p>The function in particular I'd like to use is <a href="https://www.gnu.org/software/libc/manual/html_node/Resource-Usage.html">getrusage()</a>, which
+is part of the GNU <code>libc</code>.</p>
+<blockquote>
+<p><strong>Note:</strong> this example will be, quite obviously, Linux-specific. If you're on
+Mac or Windows you might want to look for some other function which returns
+a struct and play around with that. To be honest, I'm only using <code>getrusage()</code>
+because it was the first thing to pop up when I searched Google.</p>
+<p><a href="https://msdn.microsoft.com/en-us/library/windows/desktop/ms683210(v=vs.85).aspx">This function</a> looks like the Windows equivalent, and the output struct
+is even simpler than the Linux one because there's no nesting. Just <code>#include</code>
+the <code>Psapi.h</code> header file and you should be able to follow along fairly
+easily.</p>
+</blockquote>
+<p>The first thing you'll want to do when calling one of the standard C functions
+is to consult the man page:</p>
+<pre><code class="language-text">$ man getrusage
+NAME
+       getrusage - get resource usage
+
+SYNOPSIS
+       #include &lt;sys/time.h&gt;
+       #include &lt;sys/resource.h&gt;
+
+       int getrusage(int who, struct rusage *usage);
+
+DESCRIPTION
+       getrusage() returns resource usage measures for who, which can be one of 
+       the following:
+
+       RUSAGE_SELF
+              Return resource usage statistics for the calling process, which 
+              is the sum of resources used by all threads in the process.
+
+       RUSAGE_CHILDREN
+              Return  resource  usage statistics for all children of the calling 
+              process that have terminated and been waited for. These 
+              statistics will include the resources used by grandchildren, 
+              and further removed descendants, if all of the intervening 
+              descendants waited on their terminated children.  
+
+       The resource usages are returned in the structure pointed to by usage, 
+       which has the following form:
+
+           struct rusage {
+               struct timeval ru_utime; /* user CPU time used */
+               struct timeval ru_stime; /* system CPU time used */
+               long   ru_maxrss;        /* maximum resident set size */
+               long   ru_ixrss;         /* integral shared memory size */
+               long   ru_idrss;         /* integral unshared data size */
+               long   ru_isrss;         /* integral unshared stack size */
+               long   ru_minflt;        /* page reclaims (soft page faults) */
+               long   ru_majflt;        /* page faults (hard page faults) */
+               long   ru_nswap;         /* swaps */
+               long   ru_inblock;       /* block input operations */
+               long   ru_oublock;       /* block output operations */
+               long   ru_msgsnd;        /* IPC messages sent */
+               long   ru_msgrcv;        /* IPC messages received */
+               long   ru_nsignals;      /* signals received */
+               long   ru_nvcsw;         /* voluntary context switches */
+               long   ru_nivcsw;        /* involuntary context switches */
+           };
+
+</code></pre>
+<p>Obviously the <code>rusage</code> struct contains loads of juicy information about a
+process, but we only need a small subset of this so to make things easier we'll
+write a C library which calls <code>getrusage()</code> for us and only gives us the info we
+want. In this case, all I care about is the resident memory, unshared stack size
+and amount of time spent in user mode.</p>
+<p>Here's the C shim I came up with:</p>
+<pre><code class="language-c">#include &lt;sys/time.h&gt;
+#include &lt;sys/resource.h&gt;
+
+typedef struct stats {
+    struct timeval ru_utime;
+    long ru_maxrss;
+    long ru_isrss;
+} stats;
+
+int get_usage_stats(stats *output) {
+    struct rusage raw_usage;
+    int ret;
+    
+    ret = getrusage(RUSAGE_SELF, &amp;raw_usage);
+
+    output-&gt;ru_utime = raw_usage.ru_utime;
+    output-&gt;ru_maxrss = raw_usage.ru_maxrss;
+    output-&gt;ru_isrss = raw_usage.ru_ixrss;
+
+    return ret;
+}
+</code></pre>
+<a class="header" href="./structs/index.html#the-main-rust-program" name="the-main-rust-program"><h2>The Main Rust Program</h2></a>
+<p>Now we get to do the fun stuff, actually using this C shim of ours.</p>
+<p>First you'll want to create a new crate:</p>
+<pre><code class="language-bash">$ cargo new --bin get_usage
+</code></pre>
+<p>Make sure the C shim is in your <code>src/</code> directory. I put it at
+<a href="./structs/get_usage/src/usage.c">./get_usage/src/usage.c</a>.</p>
+<p>Next you'll want to declare the C shim and custom structs in
+<a href="./structs/get_usage/src/main.rs">main.rs</a>.</p>
+<pre><code class="language-rust">extern crate libc;
+use std::process;
+
+#[derive(Debug, Default)]
+#[repr(C)]
+struct Usage {
+    ru_utime: Timeval,
+    ru_maxrss: libc::c_long,
+    ru_isrss: libc::c_long,
+}
+
+#[derive(Debug, Default)]
+#[repr(C)]
+struct Timeval {
+    tv_sec: libc::time_t,
+    tv_usec: libc::suseconds_t,
+}
+
+extern &quot;C&quot; {
+    fn get_usage_stats(stats: &amp;mut Usage) -&gt; libc::c_int;
+}
+
+fn main() {
+    let mut usage = Usage::default();
+
+    let status = unsafe { get_usage_stats(&amp;mut usage) };
+
+    if status != 0 {
+        println!(&quot;An error occurred! Error code: {}&quot;, status);
+        process::exit(1);
+    } else {
+        println!(&quot;Usage statistics for this process: {:?}&quot;, usage);
+    }
+}
+</code></pre>
+<p>You'll see that I'm importing the <a href="https://doc.rust-lang.org/libc/x86_64-unknown-linux-gnu/libc/">libc</a> crate to help make sure the
+basic integer types (e.g. <code>c_long</code> and <code>time_t</code>) match up. You'll want to use
+this crate a lot to avoid issues like a pointer being either 32 or 64-bits and
+other quirks.</p>
+<p>They also have a definition of <code>timeval</code> too, but I felt like declaring my own
+because it's just a struct with a pair of <code>i64</code>s (for my platform anyway). As
+long as the integer types and sizes match up C won't care, bytes are bytes.</p>
+<blockquote>
+<p><strong>Note:</strong> The big thing to take away here is that as long as your struct is
+the correct size, it doesn't matter how it's laid out internally. This means
+you can actually emulate the <code>rusage</code> struct like this and skip the C shim
+entirely!</p>
+<pre><code class="language-rust">#[repr(C)]
+struct rusage {
+  ru_utime: Timeval,
+  _padding_1: [u8; 8],
+  ru_maxrss: libc::c_long,
+  _padding_2: [u8; 8],
+  ru_isrsss: libc::c_long,
+  _padding_3: [u8; 40],
+}
+</code></pre>
+<p>I feel like you could use some macro magic to emulate C-style unions using
+getters/setters and a healthy dose of <code>transmute()</code>. But I'll leave that as
+an exercise for the reader.</p>
+</blockquote>
+<p>Now to roll this all together there's just one more step. A build script.</p>
+<p>This one's surprisingly easy (<a href="./structs/get_usage/build.rs">build.rs</a>):</p>
+<pre><code class="language-rust">extern crate gcc;
+
+fn main() {
+    gcc::compile_library(&quot;libusage.a&quot;, &amp;[&quot;src/usage.c&quot;]);
+}
+</code></pre>
+<p>Don't forget to add <code>gcc</code> and <code>libc</code> to your
+<a href="./structs/get_usage/Cargo.toml">Cargo.toml</a>.</p>
+<pre><code class="language-toml">[package]
+name = &quot;get_usage&quot;
+version = &quot;0.1.0&quot;
+authors = [&quot;Michael Bryan &lt;michaelfbryan@gmail.com&gt;&quot;]
+build = &quot;build.rs&quot;
+
+[dependencies]
+libc = &quot;*&quot;
+
+[build-dependencies]
+gcc = &quot;*&quot;
+</code></pre>
+<p>And now we can finally run this thing.</p>
+<pre><code class="language-bash">$ cargo run
+   Compiling libc v0.2.20
+   Compiling gcc v0.3.43
+   Compiling get_usage v0.1.0 (...)
+    Finished dev [unoptimized + debuginfo] target(s) in 3.51 secs
+     Running `target/debug/get_usage`
+Usage statistics for this process: Usage { ru_utime: Timeval { tv_sec: 0, tv_usec: 24000 }, ru_maxrss: 18732, ru_isrss: 0 }
+</code></pre>
+<p>Believe it or not, but the hardest part of all this wasn't the FFI, it was
+trawling through various man pages and the <code>libc</code> documentation to find out how
+the <code>rusage</code> and <code>timeval</code> structs are laid out.</p>
+<p>If you're wondering where <code>gcc-rs</code> put the C library or what symbols were
+defined:</p>
+<pre><code class="language-bash">$ find -name libusage.a
+./target/debug/build/get_usage-3714b2c0389134ed/out/libusage.a
+
+$ nm $(find -name 'libusage.a')
+usage.o:
+                 U getrusage
+0000000000000000 T get_usage_stats
+</code></pre>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+                    <a href="./arrays/index.html" class="mobile-nav-chapters previous">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+                    <a href="./strings/index.html" class="mobile-nav-chapters next">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+
+            </div>
+
+            
+                <a href="./arrays/index.html" class="nav-chapters previous" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+            
+
+            
+                <a href="./strings/index.html" class="nav-chapters next" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

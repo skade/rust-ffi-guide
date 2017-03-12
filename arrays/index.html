@@ -1,0 +1,253 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Arrays - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="../">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html" class="active"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./arrays/index.html#arrays" name="arrays"><h1>Arrays</h1></a>
+<p>Now that you've got the basics, lets try to do something a little more
+interesting. We'll pass around some arrays.</p>
+<p>For a change, we'll be using Rust as a library (i.e. the &quot;guest&quot; language) and
+C as the &quot;host&quot; language. If you're trying to augment a legacy code base with
+safer code which is less prone to memory issues and security vulnerabilities,
+this is something you might end up doing often.</p>
+<a class="header" href="./arrays/index.html#our-rust-library" name="our-rust-library"><h2>Our Rust Library</h2></a>
+<p>This program is going to be fairly stock standard. We'll write a Rust function
+which receives an array of integers and gives you back their average as a <code>f64</code>
+and put it in <a href="./arrays/averages.rs">averages.rs</a>.</p>
+<pre><code class="language-rust">// averages.rs
+
+use std::slice;
+
+#[no_mangle]
+pub extern &quot;C&quot; fn average(array: *const i64, length: i32) -&gt; f64 {
+    let numbers = unsafe { slice::from_raw_parts(array, length as usize) };
+
+    let sum = numbers.iter()
+        .fold(0.0, |acc, &amp;elem| acc + elem as f64);
+
+    sum / numbers.len() as f64
+}
+</code></pre>
+<p>The code itself is quite tame, and should be familiar to most rustaceans, but
+that <code>unsafe</code> line should have caught your attention. We're using
+<a href="https://doc.rust-lang.org/nightly/std/slice/fn.from_raw_parts.html">slice::from_raw_parts()</a> to tell the compiler &quot;here's a pointer
+to some an <code>i64</code> and a number of elements, can you just pretend it's an array
+for me?&quot;.</p>
+<p>We needed to add the <code>extern &quot;C&quot;</code> bit to the function signature to indicate
+that the function will be exported and should use the &quot;C&quot; calling convention.
+The <code>#[no_mangle]</code> attribute tells the compiler to leave the function symbol as
+it is instead of mangling it (check out <a href="https://en.wikipedia.org/wiki/Name_mangling">name mangling</a> for more
+details).</p>
+<blockquote>
+<p><strong>Note:</strong> Notice that I used <code>slice::from_raw_parts()</code> here to get a slice
+instead of getting a <code>Vec</code> with <code>Vec::from_raw_parts()</code>. I'll leave it as an
+exercise for the reader to figure out why (hint: who owns that chunk of
+memory?)</p>
+</blockquote>
+<p>Obviously must be unsafe (hence the <code>unsafe</code> block), but what exactly could go
+wrong here? I'll try to list just a few ways you could end up having a bad
+time.</p>
+<ul>
+<li>The caller passes in a null pointer instead of a pointer to some valid array.<br />
+this leads to a segfault the moment you try to iterate over it because you
+don't own the memory at address 0.</li>
+<li>The caller passes in a length which is longer than the actual array that was
+allocated. When you do your iteration you then start reading into array you
+don't own and either the OS will make you segfault (if you're lucky), or you
+read bytes from the next thing in memory.</li>
+<li>The caller gives you a pointer to an array of floats (or bools, or structs,
+or whatever). <code>slice::from_raw_parts()</code> doesn't do any type checking, so it'll
+happily let you read in garbage (assuming you don't segfault).</li>
+</ul>
+<p>Now that we have a better idea of what <em>could</em> go wrong, lets compile this baby.
+Just for fun, lets make this example statically compiled.</p>
+<pre><code class="language-bash">$ rustc --crate-type staticlib -o libaverages.a averages.rs
+note: link against the following native artifacts when linking against this static library
+
+note: the order and any duplication can be significant on some platforms, and so may need to be preserved
+
+note: library: dl
+note: library: rt
+note: library: pthread
+note: library: gcc_s
+note: library: c
+note: library: m
+note: library: rt
+note: library: util
+</code></pre>
+<p>Woah, what happened there?! What are all these extra notes about?</p>
+<p>It turns out that because we're wanting to compile everything into one
+executable, dependencies and all, we'll also need to link in a bunch of other
+stuff. If you don't really understand what I'm talking about, its okay, you'll
+see what I mean a bit later.</p>
+<a class="header" href="./arrays/index.html#the-c-program" name="the-c-program"><h2>The C Program</h2></a>
+<p>Using our Rust library is actually fairly easy to do in C. You just declare it
+like you would when calling any other C library, then pass in the appropriate
+parameters. Here is the contents of my <a href="./arrays/main.c">main.c</a>:</p>
+<pre><code class="language-c">// main.c
+
+#include &lt;stdio.h&gt;
+
+double average(long *array, int length);
+
+int main() {
+    long arr[20];
+
+    for (int i = 0; i &lt; 20; i++) {
+        arr[i] = i*i;
+    }
+
+    double avg = average(arr, 20);
+
+    printf(&quot;The average is %f\n&quot;, avg);
+}
+</code></pre>
+<p>And now let's compile everything.</p>
+<pre><code class="language-bash">$ clang main.c libaverages.a
+libaverages.a(std-9a66b6a343d52844.0.o): In function `std::sys::imp::mutex::{{impl}}::init':
+/checkout/src/libstd/sys/unix/mutex.rs:56: undefined reference to `pthread_mutexattr_init'
+/checkout/src/libstd/sys/unix/mutex.rs:58: undefined reference to `pthread_mutexattr_settype'
+/checkout/src/libstd/sys/unix/mutex.rs:62: undefined reference to `pthread_mutexattr_destroy'
+/checkout/src/libstd/sys/unix/mutex.rs:56: undefined reference to `pthread_mutexattr_init'
+...
+...
+/checkout/src/libstd/sys/unix/thread.rs:240: undefined reference to `pthread_attr_getstack'
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+</code></pre>
+<p>Oops! When clang tried to compile our <code>libaverages.a</code> library and <code>main.c</code> into
+one executable it wasn't able to find a bunch of symbols.</p>
+<p>Remember those notes from earlier? That's what <code>rustc</code> was trying to warn us
+about. When you compile everything statically you need to include <strong>all</strong> your
+dependencies. You didn't have this issue when dynamically linking because the
+loader finds everything for you.</p>
+<p>Okay, lets try again...</p>
+<pre><code class="language-bash">$ clang -l dl \
+    -l rt \
+    -l pthread \
+    -l gcc_s \
+    -l c \
+    -l m \
+    -l util \
+    -o main \
+    main.c \
+    libaverages.a
+$ ls 
+main  averages.rs  libaverages.a  main.c  
+$ ./main
+The average is 123.500000
+</code></pre>
+<p>Looks like it's finally working, but passing in all those <code>-l</code> arguments to
+keep the linker happy was hard work! You can see why people came up with tools
+like <code>make</code> to help them build everything.</p>
+<p>Luckily in Rust, we can do one better...</p>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+                    <a href="./introduction/index.html" class="mobile-nav-chapters previous">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+                    <a href="./structs/index.html" class="mobile-nav-chapters next">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+
+            </div>
+
+            
+                <a href="./introduction/index.html" class="nav-chapters previous" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+            
+
+            
+                <a href="./structs/index.html" class="nav-chapters next" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

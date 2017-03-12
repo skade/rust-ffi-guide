@@ -1,0 +1,1 @@
+{"rustc":17615268967769245645,"target":14967541128544510330,"profile":11625325535095225723,"local":{"variant":"Precalculated","fields":["0.2.6"]},"features":"None","deps":[["hamming v0.1.3",18047774385684879415],["primal-bit v0.2.3",536921134882845085],["primal-estimate v0.2.1",1492381892940536633]],"rustflags":[]}

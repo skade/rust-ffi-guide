@@ -1,0 +1,404 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Generating Bindings and Writing Wrappers - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="../">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html" class="active"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./bindgen/index.html#generating-bindings-and-writing-wrappers" name="generating-bindings-and-writing-wrappers"><h1>Generating Bindings and Writing Wrappers</h1></a>
+<p>A lot of the time you'll have a large amount of existing C (or C++, but more of
+that later) code which you need to integrate your Rust tools into, a great
+example of this is <a href="https://github.com/sfackler/rust-openssl">OpenSSl</a> or <a href="https://github.com/alexcrichton/git2-rs">git</a>. Unless the C code is
+fairly small or trivial it's not going to be feasible to port to Rust, plus
+why re-invent the wheel when you could be doing more interesting stuff?</p>
+<p>Luckily with Rust you can have your cake and eat it too. As you'll already know
+Rust can transparently call C functions as long as you have declarations for
+them so the compiler knows what symbols to use. Enter <a href="https://github.com/servo/rust-bindgen">bindgen</a>.</p>
+<p>Bindgen does all the hard work of parsing C-style header files and generating
+the equivalent Rust function definitions. They've also got a
+<a href="http://fitzgeraldnick.com/2016/12/14/using-libbindgen-in-build-rs.html">great tutorial</a> for getting started so I'm not going to bother
+reiterating the basics. Instead, we'll try to focus on the more high level
+stuff which comes with using a C library from Rust, seeing as the zero cost
+abstractions and high level way of approaching things is probably why you're
+trying to do this FFI stuff in the first place!</p>
+<a class="header" href="./bindgen/index.html#getting-set-up" name="getting-set-up"><h2>Getting Set Up</h2></a>
+<p>We'll be building on top of the <a href="http://fitzgeraldnick.com/2016/12/14/using-libbindgen-in-build-rs.html">great tutorial</a> I linked earlier to write
+an idiomatic Rust wrapper around <code>bzip2</code>. I'll assume you've already read
+through that tutorial and focus more on the next step, writing the actual
+wrapper code and using common Rust patterns.</p>
+<p>First we'll create a new crate:</p>
+<pre><code class="language-bash">$ cargo new bzip2
+</code></pre>
+<p>Then add <code>bindgen</code> as a dependency and tell <code>Cargo</code> about our build script
+(which doesn't actually exist yet):</p>
+<pre><code> name = &quot;bzip2&quot;
+ version = &quot;0.1.0&quot;
+ authors = [&quot;Michael-F-Bryan &lt;michaelfbryan@gmail.com&gt;&quot;]
++build = &quot;build.rs&quot;
+ 
+ [dependencies]
++
++[build-dependencies]
++bindgen = &quot;0.20.0&quot;
+</code></pre>
+<p><code>Bindgen</code> works by reading a <code>C</code>-style header file using <code>libclang</code>, then
+it runs the preprocessor and creates bindings based on the output. Therefore,
+before we can start our build script we'll need a dummy header which pulls in
+the <code>bzip2</code> library installed on your system.</p>
+<pre><code class="language-c">// wrapper.h
+#include &lt;bzlib.h&gt;
+</code></pre>
+<p>Now we can create our <code>build.rs</code> script. This gets run before the crate is
+compiled, and allows us to generate code at compile time.</p>
+<pre><code class="language-Rust">extern crate bindgen;
+
+use std::env;
+use std::path::PathBuf;
+
+fn main() {
+    println!(&quot;cargo:rustc-link-lib=bz2&quot;);
+
+    let bindings = bindgen::Builder::default()
+        .no_unstable_rust()
+        .header(&quot;wrapper.h&quot;)
+        .generate()
+        .expect(&quot;Unable to generate bindings&quot;);
+
+    let out_path = PathBuf::from(env::var(&quot;OUT_DIR&quot;).unwrap());
+    bindings
+        .write_to_file(out_path.join(&quot;bindings.rs&quot;))
+        .expect(&quot;Couldn't write bindings!&quot;);
+}
+</code></pre>
+<p>Let's compile everything created so far to make sure it actually works.</p>
+<pre><code class="language-bash">$ cargo build 
+    Updating registry `https://github.com/rust-lang/crates.io-index`
+Downloading bindgen v0.20.5
+Downloading syntex_syntax v0.54.0
+...
+Finished debug [unoptimized + debuginfo] target(s) in 12.41 secs
+</code></pre>
+<p>So far, we haven't actually written any code so our <code>lib.rs</code> file should still
+just have the auto-generated <code>it_works()</code> test. If you want to view the
+generated bindings, you'll see that it's not exactly the nicest Rust code to
+look at...</p>
+<pre><code class="language-bash">$ find -name &quot;bindings.rs&quot;
+./target/debug/build/bzip2-cd18fea72e03763e/out/bindings.rs
+</code></pre>
+<p>And here are a couple excerpts from that file:</p>
+<pre><code class="language-Rust">// selected output from ./target/debug/build/bzip2-cd18fea72e03763e/out/bindings.rs
+
+/* automatically generated by rust-bindgen */
+
+#[repr(C)]
+pub struct __BindgenUnionField&lt;T&gt;(::std::marker::PhantomData&lt;T&gt;);
+impl &lt;T&gt; __BindgenUnionField&lt;T&gt; {
+    #[inline]
+    pub fn new() -&gt; Self { __BindgenUnionField(::std::marker::PhantomData) }
+    #[inline]
+    pub unsafe fn as_ref(&amp;self) -&gt; &amp;T { ::std::mem::transmute(self) }
+    #[inline]
+    pub unsafe fn as_mut(&amp;mut self) -&gt; &amp;mut T { ::std::mem::transmute(self) }
+}
+
+...
+
+pub const BZ_RUN: ::std::os::raw::c_uint = 0;
+pub const BZ_FLUSH: ::std::os::raw::c_uint = 1;
+pub const BZ_FINISH: ::std::os::raw::c_uint = 2;
+pub const BZ_OK: ::std::os::raw::c_uint = 0;
+pub const BZ_RUN_OK: ::std::os::raw::c_uint = 1;
+pub const BZ_FLUSH_OK: ::std::os::raw::c_uint = 2;
+
+...
+
+#[repr(C)]
+#[derive(Debug, Copy)]
+pub struct _bindgen_ty_1 {
+    pub next_in: *mut ::std::os::raw::c_char,
+    pub avail_in: ::std::os::raw::c_uint,
+    pub total_in_lo32: ::std::os::raw::c_uint,
+    pub total_in_hi32: ::std::os::raw::c_uint,
+    pub next_out: *mut ::std::os::raw::c_char,
+    pub avail_out: ::std::os::raw::c_uint,
+    pub total_out_lo32: ::std::os::raw::c_uint,
+    ...
+}
+pub type bz_stream = _bindgen_ty_1;
+</code></pre>
+<p>I usually like to put my FFI bindings in their own sub-module, we can now
+replace the contents of <code>lib.rs</code> and recompile.</p>
+<pre><code class="language-Rust">pub mod ffi {
+    #![allow(non_upper_case_globals)]
+    #![allow(non_camel_case_types)]
+    #![allow(non_snake_case)]
+
+    include!(concat!(env!(&quot;OUT_DIR&quot;), &quot;/bindings.rs&quot;));
+}
+</code></pre>
+<blockquote>
+<p><strong>Note:</strong> You'll notice I made the <code>ffi</code> module public. I've done this during
+the development stage so we can easily view the FFI bindings using
+<code>cargo doc --open</code>. We'll make it private later on so users are forced to go
+through our Rust-ic API.</p>
+</blockquote>
+<a class="header" href="./bindgen/index.html#creating-the-rust-wrapper" name="creating-the-rust-wrapper"><h2>Creating The Rust Wrapper</h2></a>
+<p>Now that we've got a basic crate and know our build system works (i.e.
+<code>bindgen</code> is creating our bindings, and we can get started on wrapping the
+<code>bzip2</code> library and giving it a safe API.</p>
+<p>The best way to figure out how our wrapper API should look is to find existing
+code and (roughly) copy that. Luckily <code>libbzip2</code> documents its low level
+interface <a href="http://www.bzip.org/1.0.5/bzip2-manual-1.0.5.html#libprog">on their website</a> and they explain how each of the
+functions work. According to the docs, this is roughly how you'd compress some
+data:</p>
+<blockquote>
+<p>That still looks complicated? Well, fair enough. The usual sequence of
+calls for compressing a load of data is:</p>
+<ol>
+<li>Get started with <code>BZ2_bzCompressInit()</code>.</li>
+</ol>
+<p>Shovel data in and shlurp out its compressed form using zero or more calls
+of <code>BZ2_bzCompress()</code> with action = <code>BZ_RUN</code>.</p>
+<p>Finish up. Repeatedly call <code>BZ2_bzCompress()</code> with action = <code>BZ_FINISH</code>,
+copying out the compressed output, until <code>BZ_STREAM_END</code> is returned.</p>
+<p>Close up and go home. Call <code>BZ2_bzCompressEnd()</code>.</p>
+</blockquote>
+<p>From this, my thinking is that you'll want some <code>Compressor</code> object which
+contains the <code>bz_stream</code>. We'll run <code>BZ2_bzCompressInit()</code> in the constructor
+and write a <code>Drop</code> impl which calls <code>BZ2_bzCompressEnd()</code>. To make things
+simple this won't be a streaming compressor so we'll just compress everything
+from an input <code>Read</code>-er and write it to a <code>Write</code>-r. I wouldn't recommend
+trying to compress gigabyte-sized files, but it should work well enough.</p>
+<p>Error handling should be fairly easy, all <code>libbzip2</code> functions return an
+integer which corresponds to a error code, this should be fairly trivial to map
+to a Rust enum and we'll add a <code>std::convert::From&lt;i32&gt;</code> impl for convenience
+(so you can call <code>error_code.into()</code> to automatically get the error enum).</p>
+<p>Technically the <code>BZ2_bzCompressEnd()</code> destructor could fail if we pass in an
+invalid stream, but if that's the case then the worst that happens is we leak
+memory. I'll just ignore errors in the <code>Drop</code> impl for now.</p>
+<p>First for the <code>Compressor</code> definition:</p>
+<pre><code class="language-Rust">pub struct Compressor {
+    stream: Box&lt;ffi::bz_stream&gt;,
+}
+</code></pre>
+<p>Next we'll write a <code>new()</code> method which creates a zeroed <code>bz_stream</code> and then
+initializes it with the <code>BZ2_bzCompressInit()</code> function. You'll notice that
+any return code other than <code>ffi::BZ_OK</code> is cast to i32 and converted to a
+<code>Bzip2Error</code>.</p>
+<pre><code class="language-Rust">impl Compressor {
+    pub fn new() -&gt; Result&lt;Compressor, Bzip2Error&gt; {
+        unsafe {
+            let mut comp = Compressor { stream: Box::new(mem::zeroed()) };
+            let result = ffi::BZ2_bzCompressInit(&amp;mut *comp.stream,
+                                                 1, // 1 x 100000 block size
+                                                 0, // verbosity (4 = most verbose)
+                                                 0); // default work factor
+            match result as u32 {
+                ffi::BZ_OK =&gt; Ok(comp),
+                other =&gt; Err((other as i32).into()),
+            }
+        }
+    }
+</code></pre>
+<p>The <code>compress()</code> method is a bit more complicated, in it we have to:</p>
+<ul>
+<li>Read all the input into a buffer</li>
+<li>Create an output buffer of similar length</li>
+<li>Set the corresponding properties on the <code>self.stream</code> struct so that
+<code>libbzip2</code> knows where the buffers are and their sizes</li>
+<li>Call the <code>ffi::BZ2_bzCompress()</code> function</li>
+<li>Deal with the result by either:
+<ul>
+<li>Writing the compressed output to the destination, or</li>
+<li>Returning the correct error</li>
+</ul>
+</li>
+</ul>
+<pre><code class="language-Rust">    pub fn compress&lt;R: Read, W: Write&gt;(&amp;mut self,
+                                       mut src: R,
+                                       mut dest: W)
+                                       -&gt; Result&lt;(), Bzip2Error&gt; {
+        let mut input = vec![];
+        src.read_to_end(&amp;mut input)?;
+        let mut compressed_output = vec![0; input.len()];
+
+        self.stream.next_in = input.as_ptr() as *mut _;
+        self.stream.avail_in = input.len() as _;
+        self.stream.next_out = compressed_output.as_mut_ptr() as *mut _;
+        self.stream.avail_out = compressed_output.len() as _;
+
+        unsafe {
+            let result = ffi::BZ2_bzCompress(&amp;mut *self.stream, ffi::BZ_FINISH as _);
+            match result as u32 {
+                ffi::BZ_FINISH_OK |
+                ffi::BZ_RUN_OK |
+                ffi::BZ_FLUSH_OK |
+                ffi::BZ_STREAM_END =&gt; {
+                    dest.write_all(&amp;mut compressed_output)
+                        .map(|_| ())
+                        .map_err(|e| e.into())
+                }
+                other =&gt; Err((other as i32).into()),
+            }
+        }
+    }
+}
+</code></pre>
+<blockquote>
+<p><strong>Note:</strong> This function definitely violates the *Single Responsibility
+Principle* and should be refactored out into several functions, but for the
+sake of this example I won't worry about it.</p>
+</blockquote>
+<p>Finally we need to write a <code>Drop</code> implementation to make sure everything is
+cleaned up correctly afterwards. This one is really simple.</p>
+<pre><code class="language-Rust">impl Drop for Compressor {
+    fn drop(&amp;mut self) {
+        unsafe {
+            ffi::BZ2_bzCompressEnd(&amp;mut *self.stream);
+        }
+    }
+}
+</code></pre>
+<blockquote>
+<p><strong>Exercise for the reader:</strong> Try to figure out a way to handle errors in the
+destructor. What would happen when there's a panic further down the stack and
+this <code>drop()</code> fails when it's unrolling?</p>
+</blockquote>
+<p>To handle errors, I just made a simple enum which corresponds to either a
+<code>libbzip2</code> error constant or an <code>io::Error</code>.</p>
+<pre><code class="language-Rust">#[derive(Debug)]
+pub enum Bzip2Error {
+    Config,
+    Params,
+    Memory,
+    InvalidSequence,
+    Io(Box&lt;io::Error&gt;),
+}
+
+impl From&lt;i32&gt; for Bzip2Error {
+    fn from(val: i32) -&gt; Bzip2Error {
+        match val {
+            ffi::BZ_CONFIG_ERROR =&gt; Bzip2Error::Config,
+            ffi::BZ_PARAM_ERROR =&gt; Bzip2Error::Params,
+            ffi::BZ_MEM_ERROR =&gt; Bzip2Error::Memory,
+            ffi::BZ_SEQUENCE_ERROR =&gt; Bzip2Error::InvalidSequence,
+            unknown =&gt; panic!(&quot;Invalid error code: {}&quot;, unknown),
+        }
+    }
+}
+
+impl From&lt;io::Error&gt; for Bzip2Error {
+    fn from(val: io::Error) -&gt; Bzip2Error {
+        Bzip2Error::Io(Box::new(val))
+    }
+}
+</code></pre>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+                    <a href="./pythonic/index.html" class="mobile-nav-chapters previous">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+                    <a href="./best_practices.html" class="mobile-nav-chapters next">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+
+            </div>
+
+            
+                <a href="./pythonic/index.html" class="nav-chapters previous" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+            
+
+            
+                <a href="./best_practices.html" class="nav-chapters next" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

@@ -1,0 +1,246 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Best Practices - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <base href="">
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html" class="active"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./best_practices.html#ffi-best-practices" name="ffi-best-practices"><h1>FFI Best Practices</h1></a>
+<p>These are some best practices I've picked up while using Rust code from other
+languages at work. They most definitely should <strong>not</strong> be taken as gospel, and
+if you believe a point could do with improving or is just downright wrong then
+please, please, please <a href="https://github.com/Michael-F-Bryan/rust-ffi-guide/issues/new">create an issue</a> and let me know!</p>
+<a class="header" href="./best_practices.html#memory-management" name="memory-management"><h2>Memory Management</h2></a>
+<p>Because passing pointers to objects between languages is such a large part of
+FFI, memory management and memory safety is probably going to be the most error
+prone part of using/creating libraries across library boundaries.</p>
+<p>Rust forces the developer to constantly keep memory management in mind with its
+concepts of lifetimes and borrowing. This works out to be a massive advantage
+when writing FFI bindings because you constantly ask yourself questions like
+&quot;who currently owns this bit of memory?&quot; and &quot;who's job is it to free this when
+I'm done?&quot;. Because the compiler can no longer protect you against things like
+aliased pointers and double frees the job of enforcing memory safety now falls
+to <strong>you</strong> as the developer.</p>
+<p>In general, you'll want to:</p>
+<ul>
+<li>Provide explicit constructors and destructors for everything</li>
+<li>Make sure that memory is only free'd from the language it was allocated in</li>
+<li>Check for null pointers. Everywhere.</li>
+<li>Document the assumptions which are normally enforced by the Rust type system
+like whether a function recieving a pointer gains ownership of the data being
+pointed to or is only taking it as a reference</li>
+</ul>
+<p>Where possible, try to enforce memory safety to prevent against accidental
+programming errors. That said, you should explicitly state what is valid and
+will work, and if the user violates these assumptions then they're probably
+invoking undefined behaviour and they're on their own.</p>
+<p>I know that's not a particularly satisfying thing to say, but when you are
+working at such a low level you generally have to assume the caller knows what
+they're doing. There isn't all that much you can do against someone who's
+determined to shoot themselves in the foot though...</p>
+<a class="header" href="./best_practices.html#documentation" name="documentation"><h2>Documentation</h2></a>
+<p>When you cross the FFI layer, you lose almost all the help you'd usually get
+from the typesystem. The only way to compensate for this is with documentation
+so <strong>make sure you document everything</strong>.</p>
+<p>If a constructor returns <code>NULL</code> when it fails then that should be part of the
+doc comments. Even something as simple as this is sufficient:</p>
+<pre><code class="language-rust">/// Creates a new `Foo`. If the creation fails then this returns `null`.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; foo_create() -&gt; *mut Foo {
+    // insert implementation here
+}
+</code></pre>
+<p>Likewise, you must document all assumptions. If a function consumes the
+resource being pointed to by a pointer then you should state that. For
+example you might try to add some <code>Point</code> object to the <code>Foo</code> object we created
+earlier.</p>
+<pre><code class="language-rust">/// Adds a `Point` to the `Foo` object. In the process, consuming the original
+/// `Point`.
+/// 
+/// # Safety
+///
+/// This function will consume the `point` argument, trying to use it afterwards
+/// is undefined behaviour and will probably result in a `use-after-free`.
+#[no_mangle]
+pub unsafe extern &quot;C&quot; foo_add_point(foo: *mut Foo, point: *mut Point) {
+    let p = Box::from_raw(point);
+    (&amp;mut *foo).add_point(p);
+}
+</code></pre>
+<p>Notice how I added an explicit <code>Safety</code> section to the doc comment? You can use
+these to explicitly bring ownership and memory safety assumptions to the user's
+attention. other common section names you might want to use liberally are
+<code>Errors</code> and <code>Examples</code>.</p>
+<p>I don't know about you, but I wouldn't be too happy with the library
+author if I had to manually discover this after spending a couple hours with in
+debugger trying to figure out why a particular part of my program segfaults,
+when all that could have been avoided with an extra line of documentation.</p>
+<p>You should also make sure your documentation is easily accessible. If your crate
+is published on <code>crates.io</code> then it's automatically documented on <code>docs.rs</code>,
+but if it's something internal to your company then consider setting up a git
+hook which will rebuild the docs and push it to an internal server. Rust's
+built in documentation tools are some of the best in the world, so make sure to
+use them.</p>
+<blockquote>
+<p><strong>Hint:</strong> Another really useful practice is to write a header file for your
+exported symbols. If the caller is using C or C++ then they can just
+<code>#include</code> the header file directly. Likewise, Python's [cffi][cffi] can
+generate bindings from a header file.</p>
+<p>Distributing a header file alongside your library goes a long way to making
+it easier to use from other languages.</p>
+</blockquote>
+<a class="header" href="./best_practices.html#panics-and-exceptions" name="panics-and-exceptions"><h2>Panics and Exceptions</h2></a>
+<p>Panics and exceptions should never cross an FFI boundary. <strong>Ever</strong>. Doing so is
+undefined behaviour, and will likely result in significant amounts of pain or
+time wasted in a debugger.</p>
+<p>If you're lucky then a thrown exception or a Rust panic will crash your program
+immediately, otherwise it might go on, but with completely garbled state.</p>
+<p>Instead you'll want to make sure that you wrap your code in a <code>try/catch</code> block
+or <a href="https://doc.rust-lang.org/std/panic/fn.catch_unwind.html">catch_unwind()</a>, depending on the language. You should then
+make sure to either handle that error or notify a caller/callee appropriately.</p>
+<p>For more detail on error handling, check the Error Handling section of this
+book.</p>
+<!-- TODO: write the error handling part and provide a link to it -->
+<a class="header" href="./best_practices.html#api-design" name="api-design"><h2>API Design</h2></a>
+<p>TODO: Talk about KISS, opaque pointers, and consistent naming</p>
+<a class="header" href="./best_practices.html#tests" name="tests"><h2>Tests</h2></a>
+<p>When you start crossing the language barrier you can no longer rely on the
+compiler to make sure you are using things in the right way. As a result, every
+function should have at least one test to ensure that it works correctly under
+sane conditions.</p>
+<p>This is usually the callee's responsibility because they will often be writing
+an idiomatic wrapper around the raw FFI calls to add a layer of safety and
+ergonomics.</p>
+<p>In one of the projects I did at work I'd hack on my Rust library, using the
+built in <code>cargo test</code> to ensure functionality worked. Then I also distributed
+bindings for that library in the main language and alongside those bindings was
+a test suite which exercised them. This helped to ensure correctness and to
+find any bugs which might result in memory issues.</p>
+<a class="header" href="./best_practices.html#when-not-to-use-ffi" name="when-not-to-use-ffi"><h2>When Not To Use FFI</h2></a>
+<p>TODO: Rewrite this into something more applicable to Rust
+(currently just copied from https://spin.atomicobject.com/2013/02/15/ffi-foreign-function-interfaces/)</p>
+<p>You need to implement your own low-level or highly-optimized code. Ideally,
+the functions in the C library you are wrapping will do most of the heavy
+lifting, but if you need to write some custom code to directly process huge
+arrays of numerical or binary data, you might need to write code in C or
+another lower-level language to get the performance you want.</p>
+<p>You need to perform some delicate callbacks from the guest language into the
+host language. Although it’s sometimes possible (depending on the host
+language’s FFI support) to perform callbacks, some kinds of complex callback
+function signatures can be quite tricky to satisfy through FFI.</p>
+<p>The library makes heavy use of compile-time or preprocessor features, such as
+C macros. In the case of simple macros, you may be able to reimplement its
+behavior as a function in your language of choice. But if the library does
+some serious macro-fu, you might be better off just writing a C extension.</p>
+<a class="header" href="./best_practices.html#callbacks" name="callbacks"><h2>Callbacks</h2></a>
+<p>Allowing the foreign code to run some callback to notify the callee when
+something happens is really useful. For example, say you're writing a Python
+program which calls out to Rust for doing a really expensive calculation or
+simulation then it'd be nice for Rust to notify the Python program of its
+progress every now and then so you know it's still alive.</p>
+<p>That said, unless you have very good reasons not to, your callback signatures
+should be simple, shallow, and well-documented. Anything more complex than
+something which takes an event type (enum) and a numerical argument, <em>possibly</em>
+also returning a bool to indicate whether to continue is a code smell.</p>
+<p>i.e. <code>type progress_callback = fn(e: EventType, arg: f64) -&gt; bool</code></p>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+                    <a href="./bindgen/index.html" class="mobile-nav-chapters previous">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+                
+
+                
+
+            </div>
+
+            
+                <a href="./bindgen/index.html" class="nav-chapters previous" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-left"></i>
+                </a>
+            
+
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

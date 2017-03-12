@@ -1,0 +1,226 @@
+<!DOCTYPE HTML>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Hitting The Ground Running - The Rust FFI Guide</title>
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
+        <meta name="description" content="Using unsafe for fun and profit!">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+        <link rel="stylesheet" href="book.css">
+        <link href='https://fonts.googleapis.com/css?family=Open+Sans:300italic,400italic,600italic,700italic,800italic,400,300,600,700,800' rel='stylesheet' type='text/css'>
+
+        <link rel="shortcut icon" href="favicon.png">
+
+        <!-- Font Awesome -->
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+
+        <!-- MathJax -->
+        <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+        <!-- Fetch JQuery from CDN but have a local fallback -->
+        <script src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+        <script>
+            if (typeof jQuery == 'undefined') {
+                document.write(unescape("%3Cscript src='jquery.js'%3E%3C/script%3E"));
+            }
+        </script>
+    </head>
+    <body class="light">
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script type="text/javascript">
+            var theme = localStorage.getItem('theme');
+            if (theme == null) { theme = 'light'; }
+            $('body').removeClass().addClass(theme);
+        </script>
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script type="text/javascript">
+            var sidebar = localStorage.getItem('sidebar');
+            if (sidebar === "hidden") { $("html").addClass("sidebar-hidden") }
+            else if (sidebar === "visible") { $("html").addClass("sidebar-visible") }
+        </script>
+
+        <div id="sidebar" class="sidebar">
+            <ul class="chapter"><li><a href="./introduction/index.html" class="active"><strong>1.</strong> Hitting The Ground Running</a></li><li><a href="./arrays/index.html"><strong>2.</strong> Arrays</a></li><li><a href="./structs/index.html"><strong>3.</strong> Sharing Structs</a></li><li><a href="./strings/index.html"><strong>4.</strong> Strings</a></li><li><a href="./pythonic/index.html"><strong>5.</strong> Making Rust Pythonic (OO)</a></li><li><a href="./bindgen/index.html"><strong>6.</strong> Generating Bindings and Writing Wrappers</a></li><li><a href="./best_practices.html"><strong>7.</strong> Best Practices</a></li></ul>
+        </div>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="menu-bar" class="menu-bar">
+                    <div class="left-buttons">
+                        <i id="sidebar-toggle" class="fa fa-bars"></i>
+                        <i id="theme-toggle" class="fa fa-paint-brush"></i>
+                    </div>
+
+                    <h1 class="menu-title">The Rust FFI Guide</h1>
+
+                    <div class="right-buttons">
+                        <i id="print-button" class="fa fa-print" title="Print this book"></i>
+                    </div>
+                </div>
+
+                <div id="content" class="content">
+                    <a class="header" href="./introduction/index.html#the-rust-ffi-guide" name="the-rust-ffi-guide"><h1>The Rust FFI Guide</h1></a>
+<p>Welcome to the Rust FFI Guide, i.e. <strong>using unsafe for fun and profit</strong>.</p>
+<blockquote>
+<p><strong>Note:</strong> I'm going to assume you're already familiar with the <a href="https://www.rust-lang.org/">Rust</a>
+language and have a relatively recent version of the compiler installed. If
+you're a little rusty, you might want to skim through <a href="https://doc.rust-lang.org/stable/book/">The Book</a> to
+refresh your memory.</p>
+<p>You'll also need to know some basic C/C++ or Python, as I'll be largely using
+that in my examples.</p>
+</blockquote>
+<p>The main goal of this guide is to show how to interoperate between <code>Rust</code> and
+other languages with as few segfaults and uses of undefined behaviour as
+possible.</p>
+<p>Some things I'm hoping to cover:</p>
+<ul>
+<li><a href="./introduction/index.html#Hello-World">Compiling and linking from the command line</a></li>
+<li><a href="./arrays/index.html">Using arrays</a></li>
+<li><a href="./structs/index.html">Sharing basic structs between languages</a></li>
+<li>Proper error handling</li>
+<li>Calling Rust from other (i.e. not C) languages</li>
+<li><a href="./strings/index.html">How to use strings without leaking memory or segfaults</a>
+(it's harder than you'd think)</li>
+<li>Asynchronous operations, threading and callbacks</li>
+<li>Bindgen</li>
+<li><a href="./pythonic/index.html">Emulating methods and OO</a>, and</li>
+<li><a href="./best_practices.html">Other miscellaneous bits and pieces or best practices I've picked up along
+the way</a></li>
+</ul>
+<a class="header" href="./introduction/index.html#some-useful-links" name="some-useful-links"><h2>Some Useful Links:</h2></a>
+<ul>
+<li><a href="https://michael-f-bryan.github.io/rust-ffi-guide/">This Guide</a></li>
+<li><a href="https://github.com/Michael-F-Bryan/rust-ffi-guide">The GitHub Repo</a></li>
+<li><a href="https://doc.rust-lang.org/book/ffi.html">FFI Page from <em>The Book</em></a></li>
+<li><a href="http://jakegoulding.com/rust-ffi-omnibus/">The Rust FFI Omnibus</a></li>
+<li><a href="https://medium.com/jim-fleming/complex-types-with-rust-s-ffi-315d14619479">Complex Types With Rust's FFI</a></li>
+<li><a href="https://spin.atomicobject.com/2013/02/15/ffi-foreign-function-interfaces/">FFI: Foreign Function Interfaces for Fun &amp; Industry</a></li>
+</ul>
+<a class="header" href="./introduction/index.html#hello-world" name="hello-world"><h2>Hello World</h2></a>
+<p>What would any programming guide be without the obligatory hello world example?</p>
+<blockquote>
+<p><strong>Note:</strong> For most of these examples I'll be using <code>C</code> to interoperate with
+my <code>Rust</code> code. It's pretty much the <em>lingua franca</em> of the programming world,
+so most people should be able to understand it what's happening and follow
+along.</p>
+</blockquote>
+<p>To start off with, we'll try to call a <code>C</code> program from <code>Rust</code>. Here's the
+contents of my <a href="./introduction/hello.c">hello.c</a>:</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+
+void say_hello(char *name) {
+    printf(&quot;Hello %s!\n&quot;, name);
+}
+</code></pre>
+<p>And here's the <code>Rust</code> code which will be using it (<a href="./introduction/main.rs">main.rs</a>):</p>
+<pre><code class="language-rust">use std::ffi::CString;
+use std::os::raw::c_char;
+
+
+extern &quot;C&quot; {
+    fn say_hello(name: *const c_char);
+}
+
+fn main() {
+    let me = CString::new(&quot;World&quot;).unwrap();
+
+    unsafe {
+        say_hello(me.as_ptr());
+    }
+}
+</code></pre>
+<p>Our <code>say_hello()</code> function is expecting a pointer to a null-terminated string,
+and the easiest way to create one of those is with a <a href="https://doc.rust-lang.org/nightly/std/ffi/struct.CString.html">CString</a>. Notice
+that we told the compiler that we'll be using an external function called
+<code>say_hello()</code>. The &quot;C&quot; bit indicates that it should use the &quot;C&quot; calling
+convention, a calling convention specifies low level details like how
+parameters are passed to a function, which registers the callee must preserve
+for the caller, and other nitty gritty details you only really need to know if
+you're a compiler writer or assembly programmer.</p>
+<p>Almost all of what we're doing here sidesteps Rust's memory guarantees, so
+expect to see a lot more <code>unsafe</code> blocks. In this case, the C function could do
+whatever it wants with our string, so you need to wrap the function call in
+<code>unsafe</code>.</p>
+<p>Next you'll need to compile the C code into a library which can be called by
+Rust. In this example I'm going to compile it into a <code>shared library</code>.</p>
+<blockquote>
+<p><strong>Note:</strong> If you aren't familiar with the difference between a <code>static</code> and
+<code>dynamic</code> library, or how you use them you might want to read
+<a href="http://stackoverflow.com/questions/2649334/difference-between-static-and-shared-libraries">this Stack Overflow question</a>.</p>
+</blockquote>
+<pre><code class="language-bash">$ clang -shared -fPIC -o libhello.so hello.c
+</code></pre>
+<p>The <code>-shared</code> flag tells clang to compile as a dynamically linked library
+(typically &quot;*.so&quot; on Linux or &quot;*.dll&quot; on Windows). You'll also need the <code>-fPIC</code>
+flag to tell the compiler to generate Position Independent Code so that the
+generated machine code is not dependent on being located at a specific address
+in order to work. This basically means when invoking a function it'll use
+relative jumps rather than absolute.</p>
+<p>Next up is compiling <code>main.rs</code>:</p>
+<pre><code class="language-bash">$ rustc -l hello -L . main.rs
+</code></pre>
+<p>The <code>-l</code> flag tells <code>rustc</code> which library it'll need to link against so it can
+resolve symbols, and the <code>-L</code> flag adds the current directory to the list of
+places to search when finding the <code>hello</code> library.</p>
+<p>Finally we can actually run the program</p>
+<pre><code class="language-bash">$ LD_LIBRARY_PATH=. ./main
+</code></pre>
+<blockquote>
+<p><strong>Note:</strong> When you try to run a program, what actually happens is the
+<a href="https://en.wikipedia.org/wiki/Loader_(computing)">loader</a> loads the binary into memory, then tries to find any symbols
+belonging to shared libraries. Because <code>libhello.so</code> isn't in any of the
+standard directories the loader usually searches, we have to explicitly tell
+the loader where it is by overriding <code>LD_LIBRARY_PATH</code>.</p>
+</blockquote>
+<p>If we didn't override the <code>LD_LIBRARY_PATH</code> then you'd see an error something
+like this:</p>
+<pre><code class="language-bash">$ ./main
+./main: error while loading shared libraries: libhello.so: cannot open shared object file: No such file or directory
+</code></pre>
+<p>There are much more elegant solutions than this, but it'll suffice for now.</p>
+
+                </div>
+
+                <!-- Mobile navigation buttons -->
+                
+
+                
+                    <a href="./arrays/index.html" class="mobile-nav-chapters next">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+                
+
+            </div>
+
+            
+
+            
+                <a href="./arrays/index.html" class="nav-chapters next" title="You can navigate through the chapters using the arrow keys">
+                    <i class="fa fa-angle-right"></i>
+                </a>
+            
+
+        </div>
+
+
+        <!-- Local fallback for Font Awesome -->
+        <script>
+            if ($(".fa").css("font-family") !== "FontAwesome") {
+                $('<link rel="stylesheet" type="text/css" href="_FontAwesome/css/font-awesome.css">').prependTo('head');
+            }
+        </script>
+
+        <!-- Livereload script (if served using the cli tool) -->
+        
+
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
+    </body>
+</html>

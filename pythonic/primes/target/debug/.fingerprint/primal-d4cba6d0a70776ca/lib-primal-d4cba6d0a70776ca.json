@@ -1,0 +1,1 @@
+{"rustc":17615268967769245645,"target":8978218924377837043,"profile":11625325535095225723,"local":{"variant":"Precalculated","fields":["0.2.3"]},"features":"None","deps":[["primal-check v0.2.2",10052223524010055703],["primal-estimate v0.2.1",1492381892940536633],["primal-sieve v0.2.6",7191627920042803534]],"rustflags":[]}
