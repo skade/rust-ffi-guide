@@ -2,7 +2,7 @@
 
 A lot of the time you'll have a large amount of existing C (or C++, but more of 
 that later) code which you need to integrate your Rust tools into, a great 
-example of this is [OpenSSl][openssl] or [git][git]. Unless the C code is 
+example of this is [OpenSSL][openssl] or [git][git]. Unless the C code is 
 fairly small or trivial it's not going to be feasible to port to Rust, plus
 why re-invent the wheel when you could be doing more interesting stuff?
 
