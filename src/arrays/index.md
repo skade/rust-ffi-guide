@@ -3,8 +3,8 @@
 Now that you've got the basics, lets try to do something a little more 
 interesting. We'll pass around some arrays.
 
-For a change, we'll be using Rust as a library (i.e. the "guest" language) and 
-C as the "host" language. If you're trying to augment a legacy code base with 
+For a change, we'll be using `Rust` as a library (i.e. the "guest" language) and 
+`C` as the "host" language. If you're trying to augment a legacy code base with 
 safer code which is less prone to memory issues and security vulnerabilities, 
 this is something you might end up doing often.
 
@@ -48,7 +48,7 @@ details).
 > exercise for the reader to figure out why (hint: who owns that chunk of 
 > memory?)
 
-Obviously must be unsafe (hence the `unsafe` block), but what exactly could go
+This is obviously unsafe (hence the `unsafe` block), but what exactly could go
 wrong here? I'll try to list just a few ways you could end up having a bad 
 time.
 
